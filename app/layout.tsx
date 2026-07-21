@@ -1,12 +1,23 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, JetBrains_Mono } from "next/font/google";
+import { Inter, Inter_Tight, JetBrains_Mono } from "next/font/google";
 
 import "./globals.css";
 
-const geist = Geist({
+import { DeskFrame } from "@/app/_components/desk-frame";
+import { getDesk } from "@/lib/datasource";
+import { pairMeta } from "@/lib/pair-meta";
+import type { TapeItem } from "@/lib/types";
+
+const interTight = Inter_Tight({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-geist"
+  variable: "--font-display"
+});
+
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-body"
 });
 
 const jetbrainsMono = JetBrains_Mono({
@@ -33,15 +44,26 @@ export const viewport: Viewport = {
   initialScale: 1
 };
 
-export default function RootLayout({
+export const revalidate = 900;
+
+export default async function RootLayout({
   children
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const desk = await getDesk();
+  const tapeItems: TapeItem[] = desk.pairs.map((pair) => ({
+    slug: pair.slug,
+    displayName: pair.displayName,
+    z: pair.latest.z,
+    value: pair.latest.value,
+    decimals: pairMeta(pair.slug).decimals
+  }));
+
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${geist.variable} ${jetbrainsMono.variable} font-sans`}>
-        {children}
+      <body className={`${interTight.variable} ${inter.variable} ${jetbrainsMono.variable} font-sans`}>
+        <DeskFrame tapeItems={tapeItems}>{children}</DeskFrame>
       </body>
     </html>
   );

@@ -4,9 +4,10 @@ import { twMerge } from "tailwind-merge";
 import type {
   PaperTrade,
   PerformanceMetrics,
+  SeriesPoint,
   SpreadMethod,
-  SpreadPair,
   SpreadState,
+  Stability,
   TradeDirection,
   TradeExitReason
 } from "@/lib/types";
@@ -59,6 +60,10 @@ export function formatOrdinal(value: number | null | undefined): string {
   return `${rounded}${suffix}`;
 }
 
+export function formatHalfLife(value: number | null | undefined): string {
+  return isFiniteNumber(value) ? `${value.toFixed(1)}d` : "none detected";
+}
+
 export function formatDate(
   isoDate: string | null | undefined,
   options: Intl.DateTimeFormatOptions = { day: "2-digit", month: "short", year: "numeric" }
@@ -69,32 +74,46 @@ export function formatDate(
   return new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...options }).format(date);
 }
 
-export function formatSpreadValue(pair: Pick<SpreadPair, "decimals" | "unit">, value: number): string {
-  return `${formatNumber(value, pair.decimals)} ${pair.unit}`;
-}
-
-export function getSpreadState(zScore: number): SpreadState {
-  if (Math.abs(zScore) >= 2) return "stretched";
-  if (Math.abs(zScore) >= 1) return "reverting";
-  return "normal";
+/** Desk-speak state chip. STRETCHED means beyond the entry threshold now;
+ *  REVERTING means it crossed the threshold within the last five sessions and
+ *  has come back inside — the dislocation is closing, not merely elevated.
+ *  A null latest z (roll day or warm-up) is shown honestly as N/A. */
+export function getSpreadState(
+  z: number | null | undefined,
+  series: readonly SeriesPoint[] = [],
+  entryZ = 2
+): SpreadState {
+  if (!isFiniteNumber(z)) return "na";
+  if (Math.abs(z) >= entryZ) return "stretched";
+  const recent = series.slice(-6, -1);
+  const wasStretched = recent.some((point) => point.z !== null && Math.abs(point.z) >= entryZ);
+  return wasStretched ? "reverting" : "normal";
 }
 
 export const spreadStateLabel: Record<SpreadState, string> = {
   stretched: "STRETCHED",
   normal: "NORMAL",
-  reverting: "REVERTING"
+  reverting: "REVERTING",
+  na: "N/A"
 };
 
 export const spreadStateClass: Record<SpreadState, string> = {
   stretched: "text-red border-red/30 bg-red/[0.08]",
   normal: "text-green border-green/30 bg-green/[0.08]",
-  reverting: "text-amber border-amber/30 bg-amber/[0.08]"
+  reverting: "text-amber border-amber/30 bg-amber/[0.08]",
+  na: "text-muted border-line bg-surface-2"
 };
 
 export const methodLabel: Record<SpreadMethod, string> = {
-  difference: "Difference",
+  diff: "Difference",
   ratio: "Ratio",
-  "beta-adjusted": "Beta-adjusted"
+  beta: "Beta-adjusted"
+};
+
+export const stabilityLabel: Record<Stability, string> = {
+  stable: "stable",
+  unstable: "unstable",
+  insufficient_data: "insufficient data"
 };
 
 export const directionLabel: Record<TradeDirection, string> = {
@@ -109,19 +128,13 @@ export const exitReasonLabel: Record<TradeExitReason, string> = {
   manual: "Manual"
 };
 
-export function getWindowStability(
-  values: Pick<SpreadPair["windowZScores"], "days30" | "days60" | "days90">
-): boolean {
-  const windowValues = [values.days30, values.days60, values.days90];
-  return Math.max(...windowValues) - Math.min(...windowValues) <= 0.75;
-}
-
+/** Expectancy per the spec: (hit% × avgWinR) − (miss% × avgLossR). */
 export function calculatePerformance(trades: readonly PaperTrade[]): PerformanceMetrics {
-  const openTrades = trades.filter((trade) => trade.status === "open");
-  const settledTrades = [...trades]
+  const openTrades = trades.filter((trade) => !trade.closedOn);
+  const settledTrades = trades
     .filter(
       (trade): trade is PaperTrade & { rMultiple: number; closedOn: string } =>
-        trade.status === "closed" && isFiniteNumber(trade.rMultiple) && Boolean(trade.closedOn)
+        Boolean(trade.closedOn) && isFiniteNumber(trade.rMultiple)
     )
     .sort((left, right) => left.closedOn.localeCompare(right.closedOn));
 
@@ -130,18 +143,16 @@ export function calculatePerformance(trades: readonly PaperTrade[]): Performance
   const breakeven = settledTrades.filter((trade) => trade.rMultiple === 0);
   const hitRate = settledTrades.length > 0 ? (wins.length / settledTrades.length) * 100 : null;
   const averageWinR =
-    wins.length > 0
-      ? wins.reduce((total, trade) => total + trade.rMultiple, 0) / wins.length
-      : null;
+    wins.length > 0 ? wins.reduce((total, trade) => total + trade.rMultiple, 0) / wins.length : null;
   const averageLossR =
     losses.length > 0
       ? Math.abs(losses.reduce((total, trade) => total + trade.rMultiple, 0) / losses.length)
       : null;
   const winRate = hitRate === null ? null : hitRate / 100;
   const expectancyR =
-    winRate === null || averageWinR === null || averageLossR === null
+    winRate === null
       ? null
-      : winRate * averageWinR - (1 - winRate) * averageLossR;
+      : winRate * (averageWinR ?? 0) - (1 - winRate) * (averageLossR ?? 0);
 
   let cumulativeR = 0;
   let peakR = 0;

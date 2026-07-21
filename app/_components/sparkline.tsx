@@ -1,17 +1,20 @@
-import type { SpreadHistoryPoint } from "@/lib/types";
+import type { SeriesPoint } from "@/lib/types";
 
 export function Sparkline({
-  history,
+  series,
   className = "",
   tone = "amber"
 }: {
-  history: readonly SpreadHistoryPoint[];
+  series: readonly SeriesPoint[];
   className?: string;
-  tone?: "amber" | "red" | "green" | "blue";
+  tone?: "amber" | "red" | "green" | "blue" | "muted";
 }) {
   const width = 240;
   const height = 64;
-  const values = history.map((point) => point.value);
+  const values = series.map((point) => point.v);
+  if (values.length < 2) {
+    return <div className={`${className} border-b border-dashed border-line`} aria-hidden="true" />;
+  }
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = Math.max(max - min, 0.000001);
@@ -22,7 +25,13 @@ export function Sparkline({
       return `${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(" ");
-  const colors = { amber: "var(--amber)", red: "var(--red)", green: "var(--green)", blue: "var(--blue)" };
+  const colors = {
+    amber: "var(--amber)",
+    red: "var(--red)",
+    green: "var(--green)",
+    blue: "var(--blue)",
+    muted: "var(--muted)"
+  };
 
   return (
     <svg aria-label="Recent spread history" className={className} fill="none" preserveAspectRatio="none" role="img" viewBox={`0 0 ${width} ${height}`}>

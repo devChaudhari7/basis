@@ -68,7 +68,7 @@ PAIRS: tuple[PairSeed, ...] = (
         leg_b_symbol=TICKERS["SILVER"],
         method="ratio",
         display_name="GOLD/SILVER",
-        unit="ratio",
+        unit="x",
         rationale=(
             "The gold/silver ratio is a classic precious-metals risk gauge; silver's larger "
             "industrial demand gives it higher beta than gold during growth and risk cycles."
@@ -80,7 +80,7 @@ PAIRS: tuple[PairSeed, ...] = (
         leg_b_symbol=TICKERS["BANKNIFTY"],
         method="ratio",
         display_name="NIFTY/BANKNIFTY",
-        unit="ratio",
+        unit="x",
         rationale=(
             "Financials' weight against the broad Indian market changes with credit and rate "
             "cycles, creating a useful lens on banking-sector divergence."
@@ -92,7 +92,7 @@ PAIRS: tuple[PairSeed, ...] = (
         leg_b_symbol=TICKERS["DXY"],
         method="beta",
         display_name="USDINR vs DXY",
-        unit="beta-adjusted points",
+        unit="resid pts",
         rationale=(
             "A rolling hedge ratio separates broad US-dollar strength from rupee-specific weakness, "
             "helping distinguish global dollar moves from Indian idiosyncratic risk."

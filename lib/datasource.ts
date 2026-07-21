@@ -320,8 +320,8 @@ async function liveDesk(): Promise<DeskData> {
 /** Units live on instruments in the DB; for a ratio/beta pair the spread unit
  *  is derived rather than stored. */
 function unitForPair(method: Pair["method"], legA: InstrumentLeg, legB: InstrumentLeg): string {
-  if (method === "ratio") return "ratio";
-  if (method === "beta") return "residual";
+  if (method === "ratio") return "x";
+  if (method === "beta") return "resid pts";
   void legB;
   // Difference spreads share the unit of their legs (e.g. USD/bbl).
   return legA.symbol === "BZ=F" ? "USD/bbl" : "points";

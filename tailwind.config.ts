@@ -21,8 +21,8 @@ const config: Config = {
         blue: "var(--blue)"
       },
       fontFamily: {
-        display: ["var(--font-geist)", "Arial", "sans-serif"],
-        sans: ["var(--font-geist)", "Arial", "sans-serif"],
+        display: ["var(--font-display)", "Arial", "sans-serif"],
+        sans: ["var(--font-body)", "Arial", "sans-serif"],
         mono: ["var(--font-mono)", "ui-monospace", "monospace"]
       },
       borderRadius: {

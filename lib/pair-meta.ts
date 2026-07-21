@@ -11,10 +11,10 @@ export interface PairPresentation {
 const DEFAULT_META: PairPresentation = { category: "Spread", decimals: 2 };
 
 const PAIR_META: Record<string, PairPresentation> = {
-  "brent-wti": { category: "Energy", decimals: 2 },
-  "gold-silver": { category: "Metals", decimals: 2 },
-  "nifty-banknifty": { category: "India equities", decimals: 4 },
-  "usdinr-dxy": { category: "FX", decimals: 2 }
+  "brent-wti": { category: "Energy", decimals: 2, displayName: "BRENT-WTI" },
+  "gold-silver": { category: "Metals", decimals: 2, displayName: "GOLD/SILVER" },
+  "nifty-banknifty": { category: "India equities", decimals: 4, displayName: "NIFTY/BANKNIFTY" },
+  "usdinr-dxy": { category: "FX", decimals: 2, displayName: "USDINR vs DXY" }
 };
 
 export function pairMeta(slug: string): PairPresentation {

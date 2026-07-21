@@ -12,7 +12,8 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { spreadPairs } from "@/lib/data";
+import { formatZScore } from "@/lib/utils";
+import type { TapeItem } from "@/lib/types";
 
 const navigation = [
   { href: "/", label: "Desk", icon: LayoutDashboard },
@@ -25,24 +26,23 @@ function isCurrentPath(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
-function Tape() {
-  const items = [...spreadPairs, ...spreadPairs];
+function Tape({ items }: { items: readonly TapeItem[] }) {
+  if (items.length === 0) return null;
+  const doubled = [...items, ...items];
 
   return (
     <div className="group hidden h-9 overflow-hidden border-b border-line bg-bg lg:block">
       <div className="flex min-w-max animate-tape-scroll group-hover:[animation-play-state:paused] motion-reduce:animate-none">
-        {items.map((pair, index) => {
-          const stretch = Math.abs(pair.zScore) >= 2;
+        {doubled.map((item, index) => {
+          const stretch = item.z !== null && Math.abs(item.z) >= 2;
           return (
             <Link
               className="flex shrink-0 items-center gap-2 border-r border-line px-5 font-mono text-[10px] tracking-[0.1em] text-muted transition-colors hover:text-text"
-              href={`/s/${pair.slug}`}
-              key={`${pair.slug}-${index}`}
+              href={`/s/${item.slug}`}
+              key={`${item.slug}-${index}`}
             >
-              <span>{pair.shortName}</span>
-              <span className={stretch ? "text-red" : "text-text"}>
-                {pair.zScore > 0 ? "+" : ""}{pair.zScore.toFixed(2)}σ
-              </span>
+              <span>{item.displayName}</span>
+              <span className={stretch ? "text-red" : "text-text"}>{formatZScore(item.z)}</span>
               <span className="text-[9px] text-muted">60D</span>
             </Link>
           );
@@ -81,7 +81,7 @@ function Navigation({ compact = false, close }: { compact?: boolean; close?: () 
   );
 }
 
-export function DeskFrame({ children }: { children: ReactNode }) {
+export function DeskFrame({ children, tapeItems }: { children: ReactNode; tapeItems: readonly TapeItem[] }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -117,7 +117,7 @@ export function DeskFrame({ children }: { children: ReactNode }) {
       )}
 
       <div className="lg:pl-[72px] xl:pl-44">
-        <Tape />
+        <Tape items={tapeItems} />
         <main className="mx-auto w-full max-w-[1280px] px-5 py-7 sm:px-7 lg:px-8 lg:py-9">{children}</main>
       </div>
     </div>

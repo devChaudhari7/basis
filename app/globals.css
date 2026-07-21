@@ -15,7 +15,8 @@
   --blue: #4c8dff;
   --grid: rgba(255, 255, 255, 0.04);
   --radius: 6px;
-  --font-geist: Arial, sans-serif;
+  --font-display: Arial, sans-serif;
+  --font-body: Arial, sans-serif;
   --font-mono: "Courier New", monospace;
 }
 
@@ -41,7 +42,7 @@
     background-position: -1px -1px;
     background-size: 26px 26px;
     color: var(--text);
-    font-family: var(--font-geist), Arial, sans-serif;
+    font-family: var(--font-body), Arial, sans-serif;
     font-size: 15px;
     line-height: 1.6;
     text-rendering: optimizeLegibility;
@@ -55,7 +56,7 @@
     inset: 0;
     pointer-events: none;
     content: "";
-    background-image: url("/grain.svg");
+    background-image: url("/grain.png");
     background-repeat: repeat;
     opacity: 0.034;
   }

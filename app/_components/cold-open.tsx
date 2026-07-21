@@ -3,11 +3,12 @@
 import { gsap } from "gsap";
 import { useEffect, useRef, useState } from "react";
 
-import { spreadPairs } from "@/lib/data";
+import { formatNumber, formatZScore } from "@/lib/utils";
+import type { TapeItem } from "@/lib/types";
 
 const SESSION_KEY = "basis-cold-open-seen";
 
-export function ColdOpen() {
+export function ColdOpen({ items }: { items: readonly TapeItem[] }) {
   const overlay = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [skipping, setSkipping] = useState(false);
@@ -35,7 +36,7 @@ export function ColdOpen() {
     return () => context.revert();
   }, [visible]);
 
-  if (!visible) return null;
+  if (!visible || items.length === 0) return null;
 
   const dismiss = () => {
     if (!overlay.current || skipping) return;
@@ -53,13 +54,15 @@ export function ColdOpen() {
           initialising basis <span className="text-amber">·</span> relative value desk<span data-cold-cursor className="ml-1 inline-block text-amber">_</span>
         </p>
         <div className="mt-8 grid gap-px overflow-hidden border border-line bg-line sm:grid-cols-2">
-          {spreadPairs.map((pair) => (
-            <div data-cold-stream className="translate-x-12 bg-bg p-4 opacity-0" key={pair.slug}>
+          {items.map((item) => (
+            <div data-cold-stream className="translate-x-12 bg-bg p-4 opacity-0" key={item.slug}>
               <div className="flex justify-between font-mono text-[10px] tracking-[0.09em] text-muted">
-                <span>{pair.shortName}</span>
-                <span className={Math.abs(pair.zScore) >= 2 ? "text-red" : "text-text"}>{pair.zScore > 0 ? "+" : ""}{pair.zScore.toFixed(2)}σ</span>
+                <span>{item.displayName}</span>
+                <span className={item.z !== null && Math.abs(item.z) >= 2 ? "text-red" : "text-text"}>
+                  {formatZScore(item.z)}
+                </span>
               </div>
-              <div className="mt-2 font-mono text-xl text-text">{pair.latestValue.toFixed(pair.decimals)}</div>
+              <div className="mt-2 font-mono text-xl text-text">{formatNumber(item.value, item.decimals)}</div>
             </div>
           ))}
         </div>
