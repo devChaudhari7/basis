@@ -42,7 +42,10 @@ export function formatPercent(value: number | null | undefined, decimals = 0): s
 }
 
 export function formatPValue(value: number | null | undefined): string {
-  return isFiniteNumber(value) ? `p = ${value.toFixed(2)}` : "—";
+  if (!isFiniteNumber(value)) return "—";
+  // Three decimals near the 0.10 signal gate so 0.095 never displays as the
+  // gate value itself; two decimals elsewhere.
+  return `p = ${value.toFixed(value < 0.1 ? 3 : 2)}`;
 }
 
 export function formatR(value: number | null | undefined): string {

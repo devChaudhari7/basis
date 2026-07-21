@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { NotebookPen, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { directionLabel, formatDate, formatNumber, formatZScore } from "@/lib/utils";
 import type { DataSourceMode, TradeDirection } from "@/lib/types";
@@ -32,6 +32,8 @@ export function TradeModal({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [direction, setDirection] = useState<TradeDirection>(
     latestZ !== null && latestZ > 0 ? "short_spread" : "long_spread"
   );
@@ -46,12 +48,20 @@ export function TradeModal({
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Move focus into the dialog; restore it to the trigger when it closes.
+    const first = dialogRef.current?.querySelector<HTMLElement>("input, textarea, button");
+    first?.focus();
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      triggerRef.current?.focus();
+    };
   }, [open]);
 
   const disabledReason =
@@ -103,6 +113,7 @@ export function TradeModal({
           className="inline-flex items-center gap-2 rounded-terminal border border-amber/50 bg-amber/10 px-4 py-2.5 font-mono text-[11px] uppercase tracking-[0.1em] text-amber transition-colors hover:bg-amber/20 disabled:cursor-not-allowed disabled:border-line disabled:bg-surface-2 disabled:text-muted"
           disabled={disabledReason !== null}
           onClick={() => setOpen(true)}
+          ref={triggerRef}
           type="button"
         >
           <NotebookPen size={14} /> Log paper trade
@@ -113,10 +124,15 @@ export function TradeModal({
       </div>
 
       {open ? (
-        <div aria-modal="true" className="fixed inset-0 z-[70] grid place-items-center bg-black/70 px-4" role="dialog">
-          <div className="w-full max-w-lg border border-line bg-surface">
+        <div
+          aria-labelledby="trade-modal-title"
+          aria-modal="true"
+          className="fixed inset-0 z-[70] grid place-items-center bg-black/70 px-4"
+          role="dialog"
+        >
+          <div className="w-full max-w-lg border border-line bg-surface" ref={dialogRef}>
             <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
-              <h2 className="font-display text-base font-semibold tracking-display">Log paper trade · {displayName}</h2>
+              <h2 className="font-display text-base font-semibold tracking-display" id="trade-modal-title">Log paper trade · {displayName}</h2>
               <button aria-label="Close" className="text-muted transition-colors hover:text-text" onClick={() => setOpen(false)} type="button">
                 <X size={16} />
               </button>

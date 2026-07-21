@@ -1,6 +1,5 @@
 "use client";
 
-import { gsap } from "gsap";
 import { useEffect, useRef, useState } from "react";
 
 import { formatNumber, formatZScore } from "@/lib/utils";
@@ -8,8 +7,11 @@ import type { TapeItem } from "@/lib/types";
 
 const SESSION_KEY = "basis-cold-open-seen";
 
+type GsapModule = typeof import("gsap")["gsap"];
+
 export function ColdOpen({ items }: { items: readonly TapeItem[] }) {
   const overlay = useRef<HTMLDivElement>(null);
+  const gsapRef = useRef<GsapModule | null>(null);
   const [visible, setVisible] = useState(false);
   const [skipping, setSkipping] = useState(false);
 
@@ -23,17 +25,31 @@ export function ColdOpen({ items }: { items: readonly TapeItem[] }) {
 
   useEffect(() => {
     if (!visible || !overlay.current) return;
-    const context = gsap.context(() => {
-      const timeline = gsap.timeline({
-        onComplete: () => setVisible(false)
-      });
-      timeline
-        .fromTo("[data-cold-copy]", { opacity: 0 }, { opacity: 1, duration: 0.18 })
-        .fromTo("[data-cold-cursor]", { opacity: 0 }, { opacity: 1, duration: 0.12 })
-        .to("[data-cold-stream]", { opacity: 1, x: 0, stagger: 0.06, duration: 0.35, ease: "power3.out" }, ">+=0.3")
-        .to(overlay.current, { opacity: 0, duration: 0.42, ease: "power2.inOut" }, ">+=0.65");
-    }, overlay);
-    return () => context.revert();
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
+
+    // gsap is loaded on demand: the intro plays once per session, so its
+    // weight stays out of the page's initial JS for every other visit.
+    void import("gsap").then(({ gsap }) => {
+      if (cancelled || !overlay.current) return;
+      gsapRef.current = gsap;
+      const context = gsap.context(() => {
+        const timeline = gsap.timeline({
+          onComplete: () => setVisible(false)
+        });
+        timeline
+          .fromTo("[data-cold-copy]", { opacity: 0 }, { opacity: 1, duration: 0.18 })
+          .fromTo("[data-cold-cursor]", { opacity: 0 }, { opacity: 1, duration: 0.12 })
+          .to("[data-cold-stream]", { opacity: 1, x: 0, stagger: 0.06, duration: 0.35, ease: "power3.out" }, ">+=0.3")
+          .to(overlay.current, { opacity: 0, duration: 0.42, ease: "power2.inOut" }, ">+=0.65");
+      }, overlay);
+      cleanup = () => context.revert();
+    });
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
   }, [visible]);
 
   if (!visible || items.length === 0) return null;
@@ -41,7 +57,12 @@ export function ColdOpen({ items }: { items: readonly TapeItem[] }) {
   const dismiss = () => {
     if (!overlay.current || skipping) return;
     setSkipping(true);
-    gsap.to(overlay.current, { opacity: 0, duration: 0.2, onComplete: () => setVisible(false) });
+    const gsap = gsapRef.current;
+    if (gsap) {
+      gsap.to(overlay.current, { opacity: 0, duration: 0.2, onComplete: () => setVisible(false) });
+    } else {
+      setVisible(false);
+    }
   };
 
   return (

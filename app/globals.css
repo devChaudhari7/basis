@@ -87,6 +87,25 @@
     outline: 1px solid var(--amber);
     outline-offset: 3px;
   }
+
+  .skip-link {
+    position: fixed;
+    top: -100px;
+    left: 16px;
+    z-index: 100;
+    border: 1px solid var(--amber);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 12px;
+    padding: 10px 14px;
+    transition: top 150ms ease-out;
+  }
+
+  .skip-link:focus {
+    top: 12px;
+  }
 }
 
 @layer components {

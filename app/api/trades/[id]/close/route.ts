@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { riskPoints } from "@/lib/datasource";
@@ -97,5 +98,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
   if (updateResult.error) {
     return NextResponse.json({ error: updateResult.error.message }, { status: 500 });
   }
+  // Bust the ISR caches so the closed trade is visible immediately.
+  revalidatePath("/");
+  revalidatePath("/s/[slug]", "page");
   return NextResponse.json(updateResult.data);
 }

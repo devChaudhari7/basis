@@ -27,14 +27,22 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.BASIS_PUBLIC_URL ?? "https://basis-self.vercel.app"),
   title: {
     default: "basis — relative value desk",
     template: "%s — basis"
   },
   description:
-    "A relative-value research desk for monitoring futures and index dislocations.",
+    "A relative-value research desk monitoring statistical dislocations between related futures and index instruments. EOD data, honest statistics, no prediction.",
   applicationName: "basis",
-  robots: { index: false, follow: false }
+  robots: { index: false, follow: false },
+  openGraph: {
+    title: "basis — relative value desk",
+    description:
+      "Monitoring statistical dislocations between related futures and index instruments.",
+    siteName: "basis",
+    type: "website"
+  }
 };
 
 export const viewport: Viewport = {
@@ -63,6 +71,9 @@ export default async function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${interTight.variable} ${inter.variable} ${jetbrainsMono.variable} font-sans`}>
+        <a className="skip-link" href="#main">
+          Skip to content
+        </a>
         <DeskFrame tapeItems={tapeItems}>{children}</DeskFrame>
       </body>
     </html>

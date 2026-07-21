@@ -54,10 +54,21 @@ def _fmt(value: float, decimals: int = 2, signed: bool = False) -> str:
     return f"{sign}{value:.{decimals}f}"
 
 
+def _ordinal(value: float) -> str:
+    if value is None or not math.isfinite(value):
+        return "n/a"
+    number = int(round(value))
+    if 11 <= number % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{suffix}"
+
+
 def format_signal_message(alert: SignalAlert, public_url: str) -> str:
     windows = f"{_fmt(alert.z_30, 1)}/{_fmt(alert.z, 1)}/{_fmt(alert.z_90, 1)}"
     half_life = f"{_fmt(alert.half_life, 1)}d" if math.isfinite(alert.half_life) else "none detected"
-    pct = f"{alert.pct_rank_252:.0f}th" if math.isfinite(alert.pct_rank_252) else "n/a"
+    pct = _ordinal(alert.pct_rank_252)
     lines = [
         f"BASIS · {alert.display_name}",
         f"z = {_fmt(alert.z, 2, signed=True)}  ({alert.lookback}d)  |  spread {_fmt(alert.value, 2)} {alert.unit}",

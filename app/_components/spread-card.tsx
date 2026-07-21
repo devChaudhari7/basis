@@ -22,11 +22,13 @@ const sparkToneByState = {
   na: "muted"
 } as const;
 
-export function SpreadCard({ pair, index }: { pair: Pair; index: number }) {
+export function SpreadCard({ pair, index, asOf }: { pair: Pair; index: number; asOf: string }) {
   const meta = pairMeta(pair.slug);
   const state = getSpreadState(pair.latest.z, pair.series, pair.entryZ);
   const change =
     pair.latest.prevValue !== null ? pair.latest.value - pair.latest.prevValue : null;
+  // A missed session must be visible, never silently forward-filled.
+  const stale = pair.latest.d < asOf;
 
   return (
     <Link
@@ -41,8 +43,18 @@ export function SpreadCard({ pair, index }: { pair: Pair; index: number }) {
           <h2 className="mt-1 font-display text-lg font-semibold tracking-display text-text">{pair.displayName}</h2>
           <p className="mt-1 font-mono text-[10px] text-muted">{methodLabel[pair.method].toLowerCase()} · {pair.unit}</p>
         </div>
-        <span className={`rounded-terminal border px-2 py-1 font-mono text-[9px] font-medium tracking-[0.09em] ${spreadStateClass[state]}`}>
-          {spreadStateLabel[state]}
+        <span className="flex flex-col items-end gap-1.5">
+          <span className={`rounded-terminal border px-2 py-1 font-mono text-[9px] font-medium tracking-[0.09em] ${spreadStateClass[state]}`}>
+            {spreadStateLabel[state]}
+          </span>
+          {stale ? (
+            <span
+              className="rounded-terminal border border-amber/40 bg-amber/10 px-2 py-1 font-mono text-[9px] font-medium tracking-[0.09em] text-amber"
+              title={`Last settlement ${pair.latest.d} — behind the desk's latest session. Missing sessions are never forward-filled.`}
+            >
+              STALE {pair.latest.d.slice(5)}
+            </span>
+          ) : null}
         </span>
       </div>
 

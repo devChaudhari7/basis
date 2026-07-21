@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { isAuthorizedOperator, serviceClient, toFinite } from "@/lib/server/operator";
@@ -93,5 +94,8 @@ export async function POST(request: Request) {
   if (insertResult.error) {
     return NextResponse.json({ error: insertResult.error.message }, { status: 500 });
   }
+  // Bust the ISR caches so the new trade is visible immediately.
+  revalidatePath("/");
+  revalidatePath("/s/[slug]", "page");
   return NextResponse.json({ id: insertResult.data.id }, { status: 201 });
 }

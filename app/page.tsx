@@ -49,7 +49,9 @@ export default async function DeskPage() {
         </div>
 
         <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {desk.pairs.map((pair, index) => <SpreadCard index={index} key={pair.slug} pair={pair} />)}
+          {desk.pairs.map((pair, index) => (
+            <SpreadCard asOf={desk.asOf} index={index} key={pair.slug} pair={pair} />
+          ))}
         </div>
       </section>
 

@@ -138,13 +138,19 @@ export function SpreadChart({
   const signalByDate = useMemo(() => new Map(signals.map((signal) => [signal.d, signal])), [signals]);
   const indexByDate = useMemo(() => new Map(points.map((point, index) => [point.d, index])), [points]);
 
-  const handleMove = (event: React.MouseEvent<SVGSVGElement>) => {
-    const svg = event.currentTarget;
-    const rect = svg.getBoundingClientRect();
-    const px = ((event.clientX - rect.left) / rect.width) * WIDTH;
+  const moveTo = (clientX: number, target: SVGSVGElement) => {
+    const rect = target.getBoundingClientRect();
+    const px = ((clientX - rect.left) / rect.width) * WIDTH;
     const frac = (px - MARGIN.left) / PLOT_W;
     const index = Math.round(frac * (points.length - 1));
     setHoverIndex(index >= 0 && index < points.length ? index : null);
+  };
+
+  const handleMove = (event: React.MouseEvent<SVGSVGElement>) =>
+    moveTo(event.clientX, event.currentTarget);
+  const handleTouch = (event: React.TouchEvent<SVGSVGElement>) => {
+    const touch = event.touches[0];
+    if (touch) moveTo(touch.clientX, event.currentTarget);
   };
 
   const hover = hoverIndex !== null ? points[hoverIndex] : null;
@@ -182,6 +188,9 @@ export function SpreadChart({
           className="block h-auto w-full cursor-crosshair select-none"
           onMouseLeave={() => setHoverIndex(null)}
           onMouseMove={handleMove}
+          onTouchEnd={() => setHoverIndex(null)}
+          onTouchMove={handleTouch}
+          onTouchStart={handleTouch}
           role="img"
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         >

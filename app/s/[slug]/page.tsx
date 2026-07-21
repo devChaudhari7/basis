@@ -90,6 +90,14 @@ export default async function SpreadDetailPage({ params }: { params: { slug: str
         </div>
       </header>
 
+      {pair.latest.d < desk.asOf ? (
+        <p className="mt-4 border border-amber/40 bg-amber/[0.07] px-3 py-2.5 font-mono text-[11px] leading-5 text-amber">
+          STALE — this pair last settled {formatDate(pair.latest.d)} while the desk&rsquo;s latest session is{" "}
+          {formatDate(desk.asOf)}. Missing sessions are never forward-filled; statistics stop at the last
+          real settlement.
+        </p>
+      ) : null}
+
       {pair.nextEvent ? (
         <p className="mt-4 flex items-center gap-2 font-mono text-[11px] text-amber">
           <CalendarClock size={13} /> next event: {pair.nextEvent.label} in {pair.nextEvent.daysAway}d ({formatDate(pair.nextEvent.d)})
@@ -168,6 +176,9 @@ export default async function SpreadDetailPage({ params }: { params: { slug: str
           </h2>
           {pair.signals.length > 0 ? (
             <table className="w-full font-mono text-[11px]">
+              <thead className="sr-only">
+                <tr><th>Date</th><th>Z-score</th><th>Direction</th></tr>
+              </thead>
               <tbody>
                 {[...pair.signals].reverse().map((signal) => (
                   <tr className="border-b border-line/60 last:border-b-0" key={signal.d}>
@@ -189,6 +200,9 @@ export default async function SpreadDetailPage({ params }: { params: { slug: str
           </h2>
           {pairTrades.length > 0 ? (
             <table className="w-full font-mono text-[11px]">
+              <thead className="sr-only">
+                <tr><th>Opened</th><th>Direction</th><th>Status</th><th>R multiple</th></tr>
+              </thead>
               <tbody>
                 {pairTrades.map((trade) => (
                   <tr className="border-b border-line/60 last:border-b-0" key={trade.id}>

@@ -26,27 +26,37 @@ function isCurrentPath(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
+function TapeRun({ items, ariaHidden = false }: { items: readonly TapeItem[]; ariaHidden?: boolean }) {
+  return (
+    <div aria-hidden={ariaHidden || undefined} className="flex">
+      {items.map((item) => {
+        const stretch = item.z !== null && Math.abs(item.z) >= 2;
+        return (
+          <Link
+            className="flex shrink-0 items-center gap-2 border-r border-line px-5 font-mono text-[10px] tracking-[0.1em] text-muted transition-colors hover:text-text"
+            href={`/s/${item.slug}`}
+            key={item.slug}
+            tabIndex={ariaHidden ? -1 : undefined}
+          >
+            <span>{item.displayName}</span>
+            <span className={stretch ? "text-red" : "text-text"}>{formatZScore(item.z)}</span>
+            <span className="text-[9px] text-muted">60D</span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 function Tape({ items }: { items: readonly TapeItem[] }) {
   if (items.length === 0) return null;
-  const doubled = [...items, ...items];
 
   return (
     <div className="group hidden h-9 overflow-hidden border-b border-line bg-bg lg:block">
       <div className="flex min-w-max animate-tape-scroll group-hover:[animation-play-state:paused] motion-reduce:animate-none">
-        {doubled.map((item, index) => {
-          const stretch = item.z !== null && Math.abs(item.z) >= 2;
-          return (
-            <Link
-              className="flex shrink-0 items-center gap-2 border-r border-line px-5 font-mono text-[10px] tracking-[0.1em] text-muted transition-colors hover:text-text"
-              href={`/s/${item.slug}`}
-              key={`${item.slug}-${index}`}
-            >
-              <span>{item.displayName}</span>
-              <span className={stretch ? "text-red" : "text-text"}>{formatZScore(item.z)}</span>
-              <span className="text-[9px] text-muted">60D</span>
-            </Link>
-          );
-        })}
+        <TapeRun items={items} />
+        {/* Second run makes the loop seamless; hidden from the a11y tree. */}
+        <TapeRun ariaHidden items={items} />
       </div>
     </div>
   );
@@ -118,7 +128,7 @@ export function DeskFrame({ children, tapeItems }: { children: ReactNode; tapeIt
 
       <div className="lg:pl-[72px] xl:pl-44">
         <Tape items={tapeItems} />
-        <main className="mx-auto w-full max-w-[1280px] px-5 py-7 sm:px-7 lg:px-8 lg:py-9">{children}</main>
+        <main className="mx-auto w-full max-w-[1280px] px-5 py-7 sm:px-7 lg:px-8 lg:py-9" id="main">{children}</main>
       </div>
     </div>
   );
