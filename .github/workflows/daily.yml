@@ -1,0 +1,39 @@
+name: daily-desk-run
+
+on:
+  schedule:
+    # 02:00 UTC Tue–Sat = after US settlement Mon–Fri (≈07:30 IST).
+    - cron: "0 2 * * 2-6"
+  workflow_dispatch: {}
+
+concurrency:
+  group: daily-desk-run
+  cancel-in-progress: false
+
+jobs:
+  run-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install worker dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run daily pipeline (ingest → stats → signals → alerts → digest)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_WHATSAPP_FROM: ${{ secrets.TWILIO_WHATSAPP_FROM }}
+          TWILIO_WHATSAPP_TO: ${{ secrets.TWILIO_WHATSAPP_TO }}
+          BASIS_PUBLIC_URL: ${{ vars.BASIS_PUBLIC_URL }}
+        run: python -m worker.run

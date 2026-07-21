@@ -1,14 +1,16 @@
-export type DataMode = "seeded-demo" | "live";
+/** Where the numbers on screen come from. Shown honestly in the UI chrome. */
+export type DataSourceMode = "live" | "snapshot";
 
-export type SpreadMethod = "difference" | "ratio" | "beta-adjusted";
+/** Matches worker/stats.py + database/schema.sql exactly. */
+export type SpreadMethod = "diff" | "ratio" | "beta";
 
-export type SpreadState = "stretched" | "normal" | "reverting";
+export type Stability = "stable" | "unstable" | "insufficient_data";
+
+export type SpreadState = "stretched" | "reverting" | "normal" | "na";
 
 export type TradeDirection = "long_spread" | "short_spread";
 
 export type TradeExitReason = "target" | "stop" | "time" | "manual";
-
-export type TradeStatus = "open" | "closed";
 
 export interface InstrumentLeg {
   symbol: string;
@@ -16,74 +18,73 @@ export interface InstrumentLeg {
   venue: string;
 }
 
-export interface ZWindows {
-  days30: number;
-  days60: number;
-  days90: number;
-  stable: boolean;
+/** One session of a spread series. Nullable stats are warm-up or roll gaps. */
+export interface SeriesPoint {
+  d: string;
+  v: number;
+  m: number | null;
+  s: number | null;
+  z: number | null;
+  roll: boolean;
 }
 
-export interface UpcomingEvent {
-  date: string;
-  label: string;
-  daysAway: number;
-  detail?: string;
-}
-
-export interface SpreadHistoryPoint {
-  /** ISO calendar date. Values are intentionally seeded demonstration data. */
-  date: string;
+export interface PairLatest {
+  d: string;
   value: number;
-  mean60: number;
-  std60: number;
-  zScore: number;
-  upper1: number;
-  lower1: number;
-  upper2: number;
-  lower2: number;
+  prevValue: number | null;
+  mean60: number | null;
+  std60: number | null;
+  z: number | null;
+  z30: number | null;
+  z90: number | null;
+  stability: Stability;
+  pctRank: number | null;
+  halfLife: number | null;
+  adfP: number | null;
+  beta: number | null;
   rollSuspect: boolean;
 }
 
-export interface SpreadSignal {
-  id: string;
-  date: string;
-  zScore: number;
+export interface SignalMark {
+  d: string;
+  z: number;
   direction: TradeDirection;
-  qualified: boolean;
 }
 
-export interface SpreadPair {
-  id: number;
+export interface UpcomingEvent {
+  d: string;
+  label: string;
+  daysAway: number;
+}
+
+export interface Pair {
+  /** Database id in live mode; null when serving the static snapshot. */
+  id: number | null;
   slug: string;
-  name: string;
-  shortName: string;
-  category: string;
+  displayName: string;
   method: SpreadMethod;
   unit: string;
-  decimals: number;
-  legs: readonly [InstrumentLeg, InstrumentLeg];
-  rationale: string;
-  latestValue: number;
-  previousValue: number;
-  zScore: number;
-  percentileRank: number;
-  halfLifeDays: number | null;
-  adfPValue: number;
-  beta?: number;
   lookback: number;
   entryZ: number;
   stopZ: number;
-  windowZScores: ZWindows;
-  state: SpreadState;
-  nextEvent?: UpcomingEvent;
+  rationale: string;
+  legs: readonly [InstrumentLeg, InstrumentLeg];
+  latest: PairLatest;
+  series: readonly SeriesPoint[];
+  signals: readonly SignalMark[];
+  nextEvent: UpcomingEvent | null;
+}
+
+export interface DeskData {
+  mode: DataSourceMode;
+  /** Latest settlement session across pairs. */
   asOf: string;
-  history: readonly SpreadHistoryPoint[];
-  signals: readonly SpreadSignal[];
-  dataMode: DataMode;
+  generatedAt: string | null;
+  pairs: readonly Pair[];
 }
 
 export interface PaperTrade {
-  id: string;
+  id: number;
   pairSlug: string;
   openedOn: string;
   entryValue: number;
@@ -91,21 +92,25 @@ export interface PaperTrade {
   direction: TradeDirection;
   stopZ: number;
   hypothesis: string;
-  status: TradeStatus;
-  closedOn?: string;
-  exitValue?: number;
-  exitZ?: number;
-  exitReason?: TradeExitReason;
-  pnlPoints?: number;
-  rMultiple?: number;
-  postMortem?: string;
-  /** All seeded records are examples, never an operator's realised track record. */
-  dataMode: DataMode;
+  closedOn: string | null;
+  exitValue: number | null;
+  exitZ: number | null;
+  exitReason: TradeExitReason | null;
+  pnlPoints: number | null;
+  rMultiple: number | null;
+  postMortem: string | null;
+  /** Marked-to-latest R for open trades; computed server-side in live mode. */
+  liveR: number | null;
+}
+
+export interface TradesData {
+  mode: DataSourceMode;
+  trades: readonly PaperTrade[];
 }
 
 export interface EquityPoint {
   index: number;
-  tradeId: string;
+  tradeId: number;
   date: string;
   rMultiple: number;
   cumulativeR: number;
@@ -126,12 +131,11 @@ export interface PerformanceMetrics {
   equityCurve: readonly EquityPoint[];
 }
 
-export interface DeskMetadata {
-  name: string;
-  subtitle: string;
-  dataMode: DataMode;
-  sourceLabel: string;
-  asOf: string;
-  disclosure: string;
-  footerDisclosure: string;
+/** Minimal payload the top tape and cold open need. */
+export interface TapeItem {
+  slug: string;
+  displayName: string;
+  z: number | null;
+  value: number;
+  decimals: number;
 }
