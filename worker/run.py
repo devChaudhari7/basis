@@ -28,6 +28,7 @@ from .diagnostics import (
 )
 from .ingest import create_supabase_client, ingest_prices, load_price_series
 from .notify import DigestLine, SignalAlert, format_digest, format_signal_message, send_message
+from .scanner import FDR_ALPHA, scan_universe
 from .seed import pair_metadata, seed_reference_data
 from .stats import StatisticsSettings, build_signal_rows, compute_spread_daily
 
@@ -303,6 +304,57 @@ def _write_correlations(
         LOGGER.info("Upserted %s cross-pair correlations", len(rows))
 
 
+def _run_candidate_scan(
+    client: Client, prices: dict[int, pd.Series], instruments_by_id: dict[int, str]
+) -> None:
+    """Sweep every instrument combination and record the corrected result.
+
+    Failures are stored alongside survivors on purpose: a shortlist without its
+    denominator hides exactly the selection effect that makes it misleading.
+    """
+
+    by_symbol = {
+        instruments_by_id[instrument_id]: series
+        for instrument_id, series in prices.items()
+        if instrument_id in instruments_by_id
+    }
+    if len(by_symbol) < 2:
+        return
+
+    candidates, summary = scan_universe(by_symbol)
+    if not candidates:
+        return
+
+    today = date.today().isoformat()
+    rows = [
+        {
+            "symbol_a": candidate.symbol_a,
+            "symbol_b": candidate.symbol_b,
+            "method": candidate.method,
+            "sessions": candidate.sessions,
+            "adf_p": _clean(candidate.adf_p),
+            "half_life": _clean(candidate.half_life),
+            "latest_z": _clean(candidate.latest_z),
+            "survives_fdr": candidate.survives_fdr,
+            "rank": candidate.rank,
+            "scanned_on": today,
+        }
+        for candidate in candidates
+    ]
+    _upsert_batches(client, "candidates", rows, conflict="symbol_a,symbol_b,method")
+    client.table("scan_runs").upsert(
+        {
+            "scanned_on": today,
+            "tested": summary["tested"],
+            "raw_pass": summary["raw_pass"],
+            "survivors": summary["survivors"],
+            "expected_false_positives": summary["expected_false_positives_uncorrected"],
+            "alpha": FDR_ALPHA,
+        },
+        on_conflict="scanned_on",
+    ).execute()
+
+
 def run_daily(settings: Settings) -> None:
     client = create_supabase_client(settings)
     seed_reference_data(client)
@@ -312,8 +364,11 @@ def run_daily(settings: Settings) -> None:
     if not pairs:
         raise RuntimeError("No pairs are configured; seeding must have failed.")
 
-    instrument_ids = sorted({int(row["leg_a"]) for row in pairs} | {int(row["leg_b"]) for row in pairs})
-    prices = load_price_series(client, instrument_ids, start_date=settings.start_date)
+    # Every ingested instrument is loaded, not just the ones inside a
+    # configured pair: the scanner needs the whole universe.
+    all_instruments = client.table("instruments").select("id,symbol").execute().data or []
+    instruments_by_id = {int(row["id"]): str(row["symbol"]) for row in all_instruments}
+    prices = load_price_series(client, sorted(instruments_by_id), start_date=settings.start_date)
 
     latest_by_pair: dict[int, dict[str, Any]] = {}
     frames: dict[str, pd.DataFrame] = {}
@@ -374,6 +429,7 @@ def run_daily(settings: Settings) -> None:
         raise RuntimeError("No pair produced statistics; refusing to send an empty digest.")
 
     _write_correlations(client, pairs, frames)
+    _run_candidate_scan(client, prices, instruments_by_id)
     _send_digest(client, settings, latest_by_pair, pairs)
 
 
