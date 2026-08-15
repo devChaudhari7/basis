@@ -7,6 +7,7 @@ import {
   BookOpenText,
   Bot,
   ChartNoAxesCombined,
+  Compass,
   LayoutDashboard,
   LogIn,
   Menu,
@@ -22,6 +23,7 @@ import type { TapeItem } from "@/lib/types";
 const navigation = [
   { href: "/", label: "Desk", icon: LayoutDashboard },
   { href: "/bot", label: "The bot", icon: Bot },
+  { href: "/explore", label: "Explore", icon: Compass },
   { href: "/journal", label: "Journal", icon: BookOpenText },
   { href: "/performance", label: "Performance", icon: ChartNoAxesCombined },
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },

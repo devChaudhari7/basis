@@ -5,6 +5,7 @@ import { ColdOpen } from "@/app/_components/cold-open";
 import { CorrelationMatrix } from "@/app/_components/correlation-matrix";
 import { DeskFooter } from "@/app/_components/desk-footer";
 import { DeskGrid } from "@/app/_components/desk-grid";
+import { LiveStrip } from "@/app/_components/live-strip";
 import { SectionHeading } from "@/app/_components/section-heading";
 import { getDesk, getTrades } from "@/lib/datasource";
 import { pairMeta } from "@/lib/pair-meta";
@@ -58,6 +59,10 @@ export default async function DeskPage() {
           <span><b className={`font-medium ${stretched > 0 ? "text-red" : "text-text"}`}>{stretched}</b> beyond entry threshold</span>
           <span><b className="font-medium text-text">60d</b> default lookback</span>
           <span className="ml-auto flex items-center gap-1.5 text-amber"><Radio size={12} /> EOD SETTLEMENT MODEL</span>
+        </div>
+
+        <div className="mt-7">
+          <LiveStrip initialAsOf={desk.asOf} />
         </div>
 
         <DeskGrid asOf={desk.asOf} pairs={desk.pairs} />
