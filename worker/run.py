@@ -29,6 +29,7 @@ from .diagnostics import (
 from .ingest import create_supabase_client, ingest_prices, load_price_series
 from .notify import DigestLine, SignalAlert, format_digest, format_signal_message, send_message
 from .event_study import run_event_study
+from .learner import FEATURES, build_features, walk_forward_experiment
 from .scanner import FDR_ALPHA, scan_universe
 from .seed import pair_metadata, seed_reference_data
 from .stats import StatisticsSettings, build_signal_rows, compute_spread_daily
@@ -386,6 +387,83 @@ def _run_event_study(client: Client, frames: dict[str, pd.DataFrame]) -> None:
     _upsert_batches(client, "event_impacts", rows, conflict="pair_slug,label")
 
 
+def _collect_learning_samples(client: Client, pairs: list[dict[str, Any]]) -> pd.DataFrame:
+    """Assemble each past signal's decision-time features and its outcome."""
+
+    rows: list[dict[str, Any]] = []
+    for pair_row in pairs:
+        pair_id = int(pair_row["id"])
+        signals = (
+            client.table("signals").select("d,z,direction,fwd_10").eq("pair_id", pair_id).execute().data
+            or []
+        )
+        if not signals:
+            continue
+        daily = {
+            str(row["d"]): row
+            for row in (
+                client.table("spread_daily")
+                .select("d,value,z,z_30,z_90,adf_p,half_life,pct_rank_252,std_60")
+                .eq("pair_id", pair_id)
+                .execute()
+                .data
+                or []
+            )
+        }
+        for signal in signals:
+            if signal.get("fwd_10") is None:
+                continue
+            daily_row = daily.get(str(signal["d"]))
+            if not daily_row:
+                continue
+            features = build_features(signal, daily_row)
+            if features is None:
+                continue
+            rows.append({"d": str(signal["d"]), "outcome": float(signal["fwd_10"]), **features})
+    return pd.DataFrame(rows)
+
+
+def _run_model_experiment(client: Client, pairs: list[dict[str, Any]]) -> None:
+    """Re-run the walk-forward comparison and record a dated verdict.
+
+    Re-run every night rather than trusting one historical result: an edge that
+    only existed in the sample that discovered it will decay here in public.
+    """
+
+    samples = _collect_learning_samples(client, pairs)
+    if samples.empty:
+        return
+    result = walk_forward_experiment(samples)
+    if result is None:
+        LOGGER.info("Model experiment inconclusive: too few resolved signals.")
+        return
+
+    client.table("model_experiments").upsert(
+        {
+            "ran_on": date.today().isoformat(),
+            "n_evaluated": result.n_evaluated,
+            "rule_hit_rate": _clean(result.rule_hit_rate),
+            "model_hit_rate": _clean(result.model_hit_rate),
+            "model_taken": result.model_taken,
+            "rule_expectancy": _clean(result.rule_expectancy),
+            "model_expectancy": _clean(result.model_expectancy),
+            "permutation_p": _clean(result.permutation_p),
+            "verdict": result.verdict,
+            "features": list(FEATURES),
+        },
+        on_conflict="ran_on",
+    ).execute()
+    LOGGER.info(
+        "Model experiment: %s (model %s/%s taken, expectancy %.3f vs rule %.3f, p=%.3f)",
+        result.verdict,
+        result.model_taken,
+        result.n_evaluated,
+        result.model_expectancy,
+        result.rule_expectancy,
+        result.permutation_p,
+    )
+
+
 def run_daily(settings: Settings) -> None:
     client = create_supabase_client(settings)
     seed_reference_data(client)
@@ -462,6 +540,7 @@ def run_daily(settings: Settings) -> None:
     _write_correlations(client, pairs, frames)
     _run_candidate_scan(client, prices, instruments_by_id)
     _run_event_study(client, frames)
+    _run_model_experiment(client, pairs)
     _send_digest(client, settings, latest_by_pair, pairs)
 
 
