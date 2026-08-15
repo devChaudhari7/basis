@@ -28,6 +28,7 @@ from .diagnostics import (
 )
 from .ingest import create_supabase_client, ingest_prices, load_price_series
 from .notify import DigestLine, SignalAlert, format_digest, format_signal_message, send_message
+from .event_study import run_event_study
 from .scanner import FDR_ALPHA, scan_universe
 from .seed import pair_metadata, seed_reference_data
 from .stats import StatisticsSettings, build_signal_rows, compute_spread_daily
@@ -355,6 +356,36 @@ def _run_candidate_scan(
     ).execute()
 
 
+def _run_event_study(client: Client, frames: dict[str, pd.DataFrame]) -> None:
+    """Re-test whether scheduled releases move each spread, and record it."""
+
+    events = client.table("events").select("d,label,affects").execute().data or []
+    if not events:
+        return
+    spreads = {slug: frame["value"] for slug, frame in frames.items() if not frame.empty}
+    impacts, _summary = run_event_study(spreads, events)
+    if not impacts:
+        return
+
+    today = date.today().isoformat()
+    rows = [
+        {
+            "pair_slug": impact.pair_slug,
+            "label": impact.label,
+            "event_sessions": impact.event_sessions,
+            "other_sessions": impact.other_sessions,
+            "median_event_move": _clean(impact.median_event_move),
+            "median_other_move": _clean(impact.median_other_move),
+            "ratio": _clean(impact.ratio),
+            "p_value": _clean(impact.p_value),
+            "survives_fdr": impact.survives_fdr,
+            "scanned_on": today,
+        }
+        for impact in impacts
+    ]
+    _upsert_batches(client, "event_impacts", rows, conflict="pair_slug,label")
+
+
 def run_daily(settings: Settings) -> None:
     client = create_supabase_client(settings)
     seed_reference_data(client)
@@ -430,6 +461,7 @@ def run_daily(settings: Settings) -> None:
 
     _write_correlations(client, pairs, frames)
     _run_candidate_scan(client, prices, instruments_by_id)
+    _run_event_study(client, frames)
     _send_digest(client, settings, latest_by_pair, pairs)
 
 
