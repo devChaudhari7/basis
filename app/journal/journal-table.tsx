@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Download } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
@@ -17,6 +17,65 @@ import type { DataSourceMode, PaperTrade, TradeExitReason } from "@/lib/types";
 
 const TOKEN_KEY = "basis-operator-token";
 type OutcomeFilter = "all" | "open" | "win" | "loss";
+
+const CSV_COLUMNS = [
+  "opened_on",
+  "pair",
+  "book",
+  "direction",
+  "entry_value",
+  "entry_z",
+  "stop_z",
+  "closed_on",
+  "exit_value",
+  "exit_z",
+  "exit_reason",
+  "pnl_points",
+  "r_multiple",
+  "hypothesis",
+  "post_mortem"
+] as const;
+
+/** RFC-4180 quoting: the hypothesis field routinely contains commas. */
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const text = String(value);
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function downloadCsv(trades: readonly PaperTrade[], pairNames: Record<string, string>) {
+  const lines = [CSV_COLUMNS.join(",")];
+  for (const trade of trades) {
+    lines.push(
+      [
+        trade.openedOn,
+        pairNames[trade.pairSlug] ?? trade.pairSlug,
+        trade.source,
+        trade.direction,
+        trade.entryValue,
+        trade.entryZ,
+        trade.stopZ,
+        trade.closedOn,
+        trade.exitValue,
+        trade.exitZ,
+        trade.exitReason,
+        trade.pnlPoints,
+        trade.rMultiple,
+        trade.hypothesis,
+        trade.postMortem
+      ]
+        .map(csvCell)
+        .join(",")
+    );
+  }
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `basis-journal-${new Date().toISOString().slice(0, 10)}.csv`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
 
 function CloseForm({ trade, onDone }: { trade: PaperTrade; onDone: () => void }) {
   const [reason, setReason] = useState<TradeExitReason>("manual");
@@ -171,7 +230,16 @@ export function JournalTable({
             </button>
           ))}
         </div>
-        <span className="ml-auto font-mono text-[10px] text-muted">{filtered.length} rows</span>
+        <div className="ml-auto flex items-center gap-3">
+          <span className="font-mono text-[10px] text-muted">{filtered.length} rows</span>
+          <button
+            className="inline-flex items-center gap-1.5 rounded-terminal border border-line px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted transition-colors hover:border-amber/50 hover:text-amber"
+            onClick={() => downloadCsv(filtered, pairNames)}
+            type="button"
+          >
+            <Download size={12} /> CSV
+          </button>
+        </div>
       </div>
 
       <div className="scrollbar-terminal overflow-x-auto">

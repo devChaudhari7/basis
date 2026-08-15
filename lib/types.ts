@@ -193,6 +193,40 @@ export interface PerformanceMetrics {
   equityCurve: readonly EquityPoint[];
 }
 
+export type BotAction = "open" | "hold" | "close" | "skip" | "idle";
+
+export interface BotDecision {
+  pairSlug: string;
+  d: string;
+  action: BotAction;
+  reason: string;
+  z: number | null;
+}
+
+export interface BotEligibility {
+  pairSlug: string;
+  eligible: boolean;
+  reason: string;
+  priorN: number;
+  priorHitRate: number | null;
+  updatedOn: string;
+}
+
+export interface BotState {
+  decisions: readonly BotDecision[];
+  eligibility: readonly BotEligibility[];
+}
+
+/** One entry in the users-vs-machine ranking. */
+export interface LeaderboardRow {
+  handle: string;
+  isMachine: boolean;
+  settled: number;
+  hitRate: number | null;
+  expectancyR: number | null;
+  totalR: number;
+}
+
 /** Minimal payload the top tape and cold open need. */
 export interface TapeItem {
   slug: string;

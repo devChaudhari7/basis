@@ -18,6 +18,9 @@ import snapshotJson from "@/lib/snapshot/desk.json";
 import { pairMeta } from "@/lib/pair-meta";
 import { createSessionClient, currentViewer } from "@/lib/server/auth";
 import type {
+  BotDecision,
+  BotEligibility,
+  BotState,
   DataSourceMode,
   DeskData,
   EventMark,
@@ -499,6 +502,59 @@ export const getDesk = cache(async (): Promise<DeskData> => {
     }
   }
   return snapshotDesk();
+});
+
+/** The bot's decision log and current per-pair eligibility. */
+export const getBotState = cache(async (): Promise<BotState> => {
+  if (dataMode() !== "live") return { decisions: [], eligibility: [] };
+  const desk = await getDesk();
+  if (desk.mode !== "live") return { decisions: [], eligibility: [] };
+
+  const slugById = new Map(desk.pairs.map((pair) => [pair.id ?? -1, pair.slug]));
+  const client = anonClient();
+  const [decisionsResult, eligibilityResult] = await Promise.all([
+    client
+      .from("bot_decisions")
+      .select("pair_id,d,action,reason,z")
+      .order("d", { ascending: false })
+      .limit(120),
+    client.from("bot_eligibility").select("pair_id,eligible,reason,prior_n,prior_hit_rate,updated_on")
+  ]);
+
+  const decisions = ((decisionsResult.data ?? []) as Record<string, unknown>[]).flatMap(
+    (row): BotDecision[] => {
+      const slug = slugById.get(Number(row.pair_id));
+      if (!slug) return [];
+      return [
+        {
+          pairSlug: slug,
+          d: String(row.d),
+          action: row.action as BotDecision["action"],
+          reason: String(row.reason),
+          z: toNumber(row.z)
+        }
+      ];
+    }
+  );
+
+  const eligibility = ((eligibilityResult.data ?? []) as Record<string, unknown>[]).flatMap(
+    (row): BotEligibility[] => {
+      const slug = slugById.get(Number(row.pair_id));
+      if (!slug) return [];
+      return [
+        {
+          pairSlug: slug,
+          eligible: Boolean(row.eligible),
+          reason: String(row.reason),
+          priorN: toNumber(row.prior_n) ?? 0,
+          priorHitRate: toNumber(row.prior_hit_rate),
+          updatedOn: String(row.updated_on)
+        }
+      ];
+    }
+  );
+
+  return { decisions, eligibility };
 });
 
 export async function getPair(slug: string): Promise<Pair | null> {

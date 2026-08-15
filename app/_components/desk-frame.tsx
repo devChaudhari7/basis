@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BookOpenText,
+  Bot,
   ChartNoAxesCombined,
   LayoutDashboard,
   LogIn,
   Menu,
+  Trophy,
   X
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -18,8 +20,10 @@ import type { TapeItem } from "@/lib/types";
 
 const navigation = [
   { href: "/", label: "Desk", icon: LayoutDashboard },
+  { href: "/bot", label: "The bot", icon: Bot },
   { href: "/journal", label: "Journal", icon: BookOpenText },
   { href: "/performance", label: "Performance", icon: ChartNoAxesCombined },
+  { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/method", label: "Method", icon: Activity },
   { href: "/signin", label: "Sign in", icon: LogIn }
 ];

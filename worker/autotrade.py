@@ -30,6 +30,8 @@ from typing import Any
 import pandas as pd
 from supabase import Client
 
+from .gating import OUTCOME_HORIZON, evaluate_eligibility, resolved_outcomes_before
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -84,6 +86,33 @@ def evaluate_exit(
             "time", f"held {sessions_held} sessions, past the {time_stop}-session time stop"
         )
     return None
+
+
+def _log_decision(
+    client: Client,
+    *,
+    pair_id: int,
+    session: date,
+    action: str,
+    reason: str,
+    z: float | None,
+) -> None:
+    """Record what the bot did today, including when it did nothing.
+
+    Publishing the declines matters as much as the entries: a system that
+    shows only its trades hides the half of the record that explains them.
+    """
+
+    client.table("bot_decisions").upsert(
+        {
+            "pair_id": pair_id,
+            "d": session.isoformat(),
+            "action": action,
+            "reason": reason,
+            "z": z if z is not None and math.isfinite(z) else None,
+        },
+        on_conflict="pair_id,d",
+    ).execute()
 
 
 def _as_float(value: Any) -> float | None:
@@ -148,9 +177,11 @@ def manage_pair(
             latest_value=latest_value,
             latest_z=latest_z,
             display_name=display_name,
+            pair_id=pair_id,
         )
         return
 
+    eligibility = _refresh_eligibility(client, pair_id=pair_id, latest_session=latest_session)
     _maybe_open(
         client,
         pair_id=pair_id,
@@ -162,7 +193,39 @@ def manage_pair(
         latest_session=latest_session,
         latest_value=latest_value,
         latest_z=latest_z,
+        eligible=eligibility.eligible,
+        eligibility_reason=eligibility.reason,
     )
+
+
+def _refresh_eligibility(client: Client, *, pair_id: int, latest_session: date):
+    """Re-judge this pair from signals that had already resolved."""
+
+    signals = (
+        client.table("signals")
+        .select("d,fwd_10")
+        .eq("pair_id", pair_id)
+        .order("d")
+        .execute()
+        .data
+        or []
+    )
+    outcomes = resolved_outcomes_before(
+        signals, pd.Timestamp(latest_session), horizon=OUTCOME_HORIZON
+    )
+    eligibility = evaluate_eligibility(outcomes)
+    client.table("bot_eligibility").upsert(
+        {
+            "pair_id": pair_id,
+            "eligible": eligibility.eligible,
+            "reason": eligibility.reason,
+            "prior_n": eligibility.prior_n,
+            "prior_hit_rate": eligibility.prior_hit_rate,
+            "updated_on": latest_session.isoformat(),
+        },
+        on_conflict="pair_id",
+    ).execute()
+    return eligibility
 
 
 def _maybe_open(
@@ -177,6 +240,8 @@ def _maybe_open(
     latest_session: date,
     latest_value: float,
     latest_z: float | None,
+    eligible: bool,
+    eligibility_reason: str,
 ) -> None:
     """Open a position only when today's session is itself a fresh signal."""
 
@@ -191,14 +256,57 @@ def _maybe_open(
         or []
     )
     if not signal or latest_z is None:
+        _log_decision(
+            client,
+            pair_id=pair_id,
+            session=latest_session,
+            action="idle",
+            reason="no signal: spread inside its entry threshold",
+            z=latest_z,
+        )
         return
     if bool(latest.get("roll_suspect", False)):
+        _log_decision(
+            client,
+            pair_id=pair_id,
+            session=latest_session,
+            action="skip",
+            reason="roll-suspect session: the jump is not economic",
+            z=latest_z,
+        )
+        return
+    if not eligible:
+        _log_decision(
+            client,
+            pair_id=pair_id,
+            session=latest_session,
+            action="skip",
+            reason=eligibility_reason,
+            z=latest_z,
+        )
+        LOGGER.info("Auto-trade stood down on %s: %s", slug, eligibility_reason)
         return
 
     sigma = _as_float(latest.get("std_60"))
     if sigma is None or sigma <= 0:
+        _log_decision(
+            client,
+            pair_id=pair_id,
+            session=latest_session,
+            action="skip",
+            reason="no usable sigma to size risk against",
+            z=latest_z,
+        )
         return
     if stop_z <= abs(latest_z):
+        _log_decision(
+            client,
+            pair_id=pair_id,
+            session=latest_session,
+            action="skip",
+            reason=f"z of {latest_z:+.2f} is already at or beyond the {stop_z:.1f} stop",
+            z=latest_z,
+        )
         LOGGER.info("Auto-trade skipped for %s: entry z already beyond the stop.", slug)
         return
 
@@ -224,6 +332,17 @@ def _maybe_open(
             ),
         }
     ).execute()
+    _log_decision(
+        client,
+        pair_id=pair_id,
+        session=latest_session,
+        action="open",
+        reason=(
+            f"{direction.replace('_', ' ')} at {latest_z:+.2f}σ — {eligibility_reason}; "
+            f"{hold}-session time stop"
+        ),
+        z=latest_z,
+    )
     LOGGER.info(
         "Auto-trade opened on %s: %s at z=%+.2f, time stop %s sessions",
         slug,
@@ -242,6 +361,7 @@ def _maybe_close(
     latest_value: float,
     latest_z: float | None,
     display_name: str,
+    pair_id: int,
 ) -> None:
     entry_value = _as_float(trade.get("entry_value"))
     entry_z = _as_float(trade.get("entry_z"))
@@ -265,6 +385,14 @@ def _maybe_close(
         time_stop=time_stop_sessions(half_life),
     )
     if decision is None:
+        _log_decision(
+            client,
+            pair_id=pair_id,
+            session=latest_session,
+            action="hold",
+            reason=f"position open {sessions_held} session(s); no exit rule met",
+            z=latest_z,
+        )
         return
 
     sign = -1.0 if str(trade["direction"]) == "short_spread" else 1.0
@@ -287,6 +415,15 @@ def _maybe_close(
             ),
         }
     ).eq("id", int(trade["id"])).execute()
+    _log_decision(
+        client,
+        pair_id=pair_id,
+        session=latest_session,
+        action="close",
+        reason=f"{decision.reason} after {sessions_held} sessions"
+        + (f" — {r_multiple:+.2f}R" if r_multiple is not None else ""),
+        z=latest_z,
+    )
     LOGGER.info(
         "Auto-trade closed on %s: %s after %s sessions (%s)",
         display_name,

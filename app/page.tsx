@@ -4,8 +4,8 @@ import { ArrowRight, CircleDot, Database, Radio } from "lucide-react";
 import { ColdOpen } from "@/app/_components/cold-open";
 import { CorrelationMatrix } from "@/app/_components/correlation-matrix";
 import { DeskFooter } from "@/app/_components/desk-footer";
+import { DeskGrid } from "@/app/_components/desk-grid";
 import { SectionHeading } from "@/app/_components/section-heading";
-import { SpreadCard } from "@/app/_components/spread-card";
 import { getDesk, getTrades } from "@/lib/datasource";
 import { pairMeta } from "@/lib/pair-meta";
 import { directionLabel, formatDate, formatR } from "@/lib/utils";
@@ -60,11 +60,7 @@ export default async function DeskPage() {
           <span className="ml-auto flex items-center gap-1.5 text-amber"><Radio size={12} /> EOD SETTLEMENT MODEL</span>
         </div>
 
-        <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {desk.pairs.map((pair, index) => (
-            <SpreadCard asOf={desk.asOf} index={index} key={pair.slug} pair={pair} />
-          ))}
-        </div>
+        <DeskGrid asOf={desk.asOf} pairs={desk.pairs} />
       </section>
 
       <section className="mt-10">
