@@ -8,6 +8,8 @@ import { ZDial } from "@/app/_components/z-dial";
 import { SignalDiagnostics } from "@/app/s/[slug]/signal-diagnostics";
 import { SpreadChart } from "@/app/s/[slug]/spread-chart";
 import { TradeModal } from "@/app/s/[slug]/trade-modal";
+import { WatchButton } from "@/app/s/[slug]/watch-button";
+import { createSessionClient } from "@/lib/server/auth";
 import { getDesk, getPair, getTrades } from "@/lib/datasource";
 import { pairMeta } from "@/lib/pair-meta";
 import {
@@ -51,6 +53,20 @@ export default async function SpreadDetailPage({ params }: { params: { slug: str
     getTrades()
   ]);
   if (!pair) notFound();
+
+  // RLS scopes this to the signed-in viewer; signed-out callers get nothing.
+  const sessionClient = createSessionClient();
+  const watched = sessionClient
+    ? Boolean(
+        (
+          await sessionClient
+            .from("watchlists")
+            .select("pair_slug")
+            .eq("pair_slug", pair.slug)
+            .maybeSingle()
+        ).data
+      )
+    : false;
 
   const meta = pairMeta(pair.slug);
   const state = getSpreadState(pair.latest.z, pair.series, pair.entryZ);
@@ -182,6 +198,14 @@ export default async function SpreadDetailPage({ params }: { params: { slug: str
                 </>
               ) : null}
             </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <WatchButton
+              defaultZ={pair.entryZ}
+              initiallyWatched={watched}
+              signedIn={tradesData.viewerId !== null}
+              slug={pair.slug}
+            />
           </div>
           <TradeModal
             decimals={meta.decimals}

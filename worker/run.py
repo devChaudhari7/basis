@@ -33,6 +33,7 @@ from .learner import FEATURES, build_features, walk_forward_experiment
 from .scanner import FDR_ALPHA, scan_universe
 from .seed import pair_metadata, seed_reference_data
 from .stats import StatisticsSettings, build_signal_rows, compute_spread_daily
+from .watchlist_alerts import run_watchlist_alerts
 
 
 LOGGER = logging.getLogger(__name__)
@@ -410,16 +411,74 @@ def _collect_learning_samples(client: Client, pairs: list[dict[str, Any]]) -> pd
                 or []
             )
         }
+        ordered_dates = sorted(daily)
+        position_of = {day: index for index, day in enumerate(ordered_dates)}
+        breaks = sorted(
+            str(row["d"])
+            for row in (
+                client.table("structural_breaks").select("d").eq("pair_id", pair_id).execute().data or []
+            )
+        )
+        events = sorted(
+            str(row["d"])
+            for row in (
+                client.table("events")
+                .select("d,affects")
+                .contains("affects", [str(pair_row["slug"])])
+                .execute()
+                .data
+                or []
+            )
+        )
+
         for signal in signals:
             if signal.get("fwd_10") is None:
                 continue
-            daily_row = daily.get(str(signal["d"]))
+            day = str(signal["d"])
+            daily_row = daily.get(day)
             if not daily_row:
                 continue
-            features = build_features(signal, daily_row)
+
+            position = position_of.get(day)
+            context: dict[str, float] = {}
+            if position is not None:
+                prior_breaks = [b for b in breaks if b < day]
+                if prior_breaks:
+                    last_break_position = position_of.get(prior_breaks[-1])
+                    if last_break_position is not None:
+                        context["sessions_since_break"] = float(position - last_break_position)
+                # Change in z over the prior week, a proxy for whether the
+                # dislocation is still opening or already closing.
+                if position >= 5:
+                    earlier = daily.get(ordered_dates[position - 5], {})
+                    try:
+                        context["z_momentum"] = float(daily_row["z"]) - float(earlier["z"])
+                    except (TypeError, ValueError, KeyError):
+                        pass
+                # Current sigma against its own trailing average.
+                window = [
+                    float(daily[d]["std_60"])
+                    for d in ordered_dates[max(0, position - 60) : position]
+                    if daily.get(d, {}).get("std_60") is not None
+                ]
+                if window:
+                    average = sum(window) / len(window)
+                    try:
+                        if average > 0:
+                            context["vol_regime"] = float(daily_row["std_60"]) / average
+                    except (TypeError, ValueError):
+                        pass
+
+            upcoming = [e for e in events if e >= day]
+            if upcoming:
+                context["days_to_event"] = float(
+                    (date.fromisoformat(upcoming[0]) - date.fromisoformat(day)).days
+                )
+
+            features = build_features(signal, daily_row, context=context)
             if features is None:
                 continue
-            rows.append({"d": str(signal["d"]), "outcome": float(signal["fwd_10"]), **features})
+            rows.append({"d": day, "outcome": float(signal["fwd_10"]), **features})
     return pd.DataFrame(rows)
 
 
@@ -541,6 +600,16 @@ def run_daily(settings: Settings) -> None:
     _run_candidate_scan(client, prices, instruments_by_id)
     _run_event_study(client, frames)
     _run_model_experiment(client, pairs)
+
+    meta = pair_metadata()
+    slug_by_id = {int(row["id"]): str(row["slug"]) for row in pairs}
+    latest_by_slug = {
+        slug_by_id[pair_id]: row for pair_id, row in latest_by_pair.items() if pair_id in slug_by_id
+    }
+    names_by_slug = {
+        slug: (meta[slug].display_name if slug in meta else slug.upper()) for slug in latest_by_slug
+    }
+    run_watchlist_alerts(client, settings, latest_by_slug, names_by_slug)
     _send_digest(client, settings, latest_by_pair, pairs)
 
 

@@ -53,6 +53,11 @@ FEATURES = (
     "half_life",
     "pct_rank_extremity",
     "sigma_ratio",
+    # Context the desk already computes but the first model ignored.
+    "sessions_since_break",
+    "days_to_event",
+    "z_momentum",
+    "vol_regime",
 )
 
 
@@ -68,8 +73,20 @@ class ExperimentResult:
     verdict: str
 
 
-def build_features(signal_row: dict, daily_row: dict) -> dict[str, float] | None:
-    """Assemble one signal's inputs, all observable on the signal session."""
+def build_features(
+    signal_row: dict,
+    daily_row: dict,
+    *,
+    context: dict[str, float] | None = None,
+) -> dict[str, float] | None:
+    """Assemble one signal's inputs, all observable on the signal session.
+
+    ``context`` carries the extras the caller can supply from data it already
+    holds: sessions since the last structural break, days to the next scheduled
+    event, the change in z over the prior week, and current sigma against its
+    own trailing average. Anything absent falls back to a neutral value so a
+    missing extra never silently becomes a strong signal.
+    """
 
     def number(value: object) -> float:
         try:
@@ -93,6 +110,12 @@ def build_features(signal_row: dict, daily_row: dict) -> dict[str, float] | None
     windows = [w for w in (z30, z, z90) if math.isfinite(w)]
     dispersion = (max(windows) - min(windows)) if len(windows) == 3 else math.nan
 
+    extras = context or {}
+
+    def extra(name: str, default: float) -> float:
+        candidate = extras.get(name, math.nan)
+        return candidate if isinstance(candidate, (int, float)) and math.isfinite(candidate) else default
+
     return {
         "abs_z": abs(z),
         "window_dispersion": dispersion if math.isfinite(dispersion) else 0.5,
@@ -101,6 +124,12 @@ def build_features(signal_row: dict, daily_row: dict) -> dict[str, float] | None
         "half_life": half_life if math.isfinite(half_life) and half_life > 0 else 60.0,
         "pct_rank_extremity": abs(pct_rank - 50.0) if math.isfinite(pct_rank) else 25.0,
         "sigma_ratio": (std_60 / abs(value)) if math.isfinite(std_60) and abs(value) > 1e-9 else 0.0,
+        # 500 sessions stands for "no break anywhere near this window".
+        "sessions_since_break": extra("sessions_since_break", 500.0),
+        # 30 days stands for "no scheduled event on the horizon".
+        "days_to_event": extra("days_to_event", 30.0),
+        "z_momentum": extra("z_momentum", 0.0),
+        "vol_regime": extra("vol_regime", 1.0),
     }
 
 
