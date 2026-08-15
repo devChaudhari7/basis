@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 from supabase import Client
 
+from .autotrade import manage_pair
 from .config import Settings
 from .diagnostics import (
     CORRELATION_WINDOW,
@@ -357,6 +358,17 @@ def run_daily(settings: Settings) -> None:
 
         frames[str(pair_row["slug"])] = frame
         _write_research(client, pair_id, frame, signal_rows)
+
+        meta = pair_metadata().get(str(pair_row["slug"]))
+        manage_pair(
+            client,
+            pair_id=pair_id,
+            slug=str(pair_row["slug"]),
+            display_name=meta.display_name if meta else str(pair_row["slug"]).upper(),
+            entry_z=float(pair_row.get("entry_z") or 2.0),
+            stop_z=float(pair_row.get("stop_z") or 3.0),
+            frame=frame,
+        )
 
     if not latest_by_pair:
         raise RuntimeError("No pair produced statistics; refusing to send an empty digest.")

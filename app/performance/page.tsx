@@ -13,8 +13,16 @@ export const revalidate = 0;
 
 export default async function PerformancePage() {
   const [desk, tradesData] = await Promise.all([getDesk(), getTrades()]);
-  const metrics = calculatePerformance(tradesData.trades);
+
+  // Three books kept apart: the mechanical rule, the desk operator's own
+  // discretion, and the signed-in visitor's. Merging them would make the
+  // rule's out-of-sample record meaningless.
+  const autoTrades = tradesData.trades.filter((trade) => trade.source === "auto");
+  const discretionaryTrades = tradesData.trades.filter((trade) => trade.source !== "auto");
+  const metrics = calculatePerformance(discretionaryTrades);
+  const autoMetrics = calculatePerformance(autoTrades);
   const hasRecord = metrics.settledTrades > 0;
+  const hasAutoRecord = autoMetrics.settledTrades > 0 || autoMetrics.openTrades > 0;
 
   return (
     <>
@@ -26,6 +34,50 @@ export default async function PerformancePage() {
           </p>
         </div>
 
+        <section className="mt-7 border border-line bg-surface">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-5 py-3.5">
+            <div>
+              <h2 className="font-display text-base font-semibold tracking-display">The mechanical book</h2>
+              <p className="mt-0.5 font-mono text-[10px] text-muted">
+                Rules fixed in advance, executed daily without discretion — the out-of-sample baseline
+              </p>
+            </div>
+            <p className="font-mono text-[10px] text-muted">
+              {autoMetrics.settledTrades} settled · {autoMetrics.openTrades} open
+            </p>
+          </div>
+          {hasAutoRecord ? (
+            <div className="grid grid-cols-2 gap-px bg-line md:grid-cols-4">
+              <div className="bg-surface p-4">
+                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Hit rate</p>
+                <p className="numeric mt-2 text-xl text-text">{formatPercent(autoMetrics.hitRate)}</p>
+              </div>
+              <div className="bg-surface p-4">
+                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Expectancy</p>
+                <p className={`numeric mt-2 text-xl ${(autoMetrics.expectancyR ?? 0) >= 0 ? "text-green" : "text-red"}`}>
+                  {formatR(autoMetrics.expectancyR)}
+                </p>
+              </div>
+              <div className="bg-surface p-4">
+                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Avg win / loss</p>
+                <p className="numeric mt-2 text-xl text-text">
+                  {formatR(autoMetrics.averageWinR)} / {autoMetrics.averageLossR !== null ? `−${formatNumber(autoMetrics.averageLossR)}R` : "—"}
+                </p>
+              </div>
+              <div className="bg-surface p-4">
+                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Max drawdown</p>
+                <p className="numeric mt-2 text-xl text-red">−{formatNumber(autoMetrics.maxDrawdownR)}R</p>
+              </div>
+            </div>
+          ) : (
+            <p className="px-5 py-4 font-mono text-[11px] leading-5 text-muted">
+              The mechanical book opens its first position the next time a spread crosses its entry
+              threshold on a clean, stationary session. Nothing is backfilled — this record starts
+              empty and accumulates forward, which is the only way it means anything.
+            </p>
+          )}
+        </section>
+
         <div className="mt-5 flex items-start gap-3 border border-amber/30 bg-amber/[0.06] px-4 py-3.5">
           <AlertTriangle className="mt-0.5 shrink-0 text-amber" size={14} />
           <p className="font-mono text-[11px] leading-5 text-muted">
@@ -34,9 +86,16 @@ export default async function PerformancePage() {
           </p>
         </div>
 
+        <h2 className="mt-10 border-b border-line pb-3 font-display text-base font-semibold tracking-display">
+          Discretionary book
+          <span className="ml-3 font-mono text-[10px] font-normal text-muted">
+            hand-logged trades, each with a written hypothesis
+          </span>
+        </h2>
+
         {hasRecord ? (
           <>
-            <div className="mt-7 grid grid-cols-2 gap-4 md:grid-cols-4">
+            <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
               <MetricCard label="Settled trades" value={metrics.settledTrades} />
               <MetricCard
                 detail={`${metrics.wins}W / ${metrics.losses}L${metrics.breakeven ? ` / ${metrics.breakeven}BE` : ""}`}
@@ -75,11 +134,12 @@ export default async function PerformancePage() {
             </div>
           </>
         ) : (
-          <div className="mt-7 border border-line bg-surface px-6 py-16 text-center">
-            <p className="font-mono text-sm text-text">No trades yet.</p>
+          <div className="mt-6 border border-line bg-surface px-6 py-14 text-center">
+            <p className="font-mono text-sm text-text">No discretionary trades yet.</p>
             <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted">
-              The log starts when the operator takes the first signal. An empty scoreboard is a truthful
-              scoreboard — nothing here is simulated, backfilled, or imagined.
+              The log starts when a human takes the first signal. An empty scoreboard is a truthful
+              scoreboard — nothing here is simulated, backfilled, or imagined. The mechanical book
+              above runs regardless, so there will be something to measure discretion against.
             </p>
           </div>
         )}

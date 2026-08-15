@@ -18,7 +18,8 @@ export function TradeModal({
   latestValue,
   latestZ,
   defaultStopZ,
-  mode
+  mode,
+  signedIn
 }: {
   slug: string;
   displayName: string;
@@ -29,6 +30,7 @@ export function TradeModal({
   latestZ: number | null;
   defaultStopZ: number;
   mode: DataSourceMode;
+  signedIn: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -195,16 +197,23 @@ export function TradeModal({
                 />
               </label>
 
-              <label className="grid gap-2">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Operator token</span>
-                <input
-                  autoComplete="off"
-                  className="w-56 rounded-terminal border border-line bg-bg px-3 py-2 font-mono text-sm text-text focus-visible:border-amber"
-                  onChange={(event) => setToken(event.target.value)}
-                  type="password"
-                  value={token}
-                />
-              </label>
+              {signedIn ? (
+                <p className="font-mono text-[10px] leading-5 text-muted">
+                  Logging to your own paper book. It is yours alone — the desk&rsquo;s public record is
+                  kept separately.
+                </p>
+              ) : (
+                <label className="grid gap-2">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Operator token</span>
+                  <input
+                    autoComplete="off"
+                    className="w-56 rounded-terminal border border-line bg-bg px-3 py-2 font-mono text-sm text-text focus-visible:border-amber"
+                    onChange={(event) => setToken(event.target.value)}
+                    type="password"
+                    value={token}
+                  />
+                </label>
+              )}
 
               {error ? <p className="font-mono text-[11px] leading-5 text-red">{error}</p> : null}
 

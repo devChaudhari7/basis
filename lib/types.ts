@@ -136,9 +136,16 @@ export interface DeskData {
   correlations: readonly PairCorrelation[];
 }
 
+/** Who opened a trade: the mechanical rule engine, the desk operator, or a
+ *  signed-in visitor trading the same signals. */
+export type TradeSource = "auto" | "operator" | "user";
+
 export interface PaperTrade {
   id: number;
   pairSlug: string;
+  source: TradeSource;
+  /** The mechanical rule that opened or closed an auto trade. */
+  rule: string | null;
   openedOn: string;
   entryValue: number;
   entryZ: number;
@@ -159,6 +166,8 @@ export interface PaperTrade {
 export interface TradesData {
   mode: DataSourceMode;
   trades: readonly PaperTrade[];
+  /** Set when a visitor is signed in, so their own track can be separated. */
+  viewerId: string | null;
 }
 
 export interface EquityPoint {

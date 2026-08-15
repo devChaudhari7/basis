@@ -248,7 +248,17 @@ function FragmentRow({
         onClick={onToggle}
       >
         <td className="px-4 py-3 text-muted">{formatDate(trade.openedOn)}</td>
-        <td className="px-4 py-3 text-text">{pairName}</td>
+        <td className="px-4 py-3 text-text">
+          {pairName}
+          {trade.source === "auto" ? (
+            <span
+              className="ml-2 rounded-terminal border border-blue/40 bg-blue/10 px-1.5 py-0.5 text-[9px] tracking-[0.08em] text-blue"
+              title="Opened and closed by the mechanical rule, without discretion"
+            >
+              RULE
+            </span>
+          ) : null}
+        </td>
         <td className="px-4 py-3 text-muted">{directionLabel[trade.direction].toLowerCase()}</td>
         <td className="px-4 py-3 text-muted">
           {formatZScore(trade.entryZ)} → {isOpen ? "…" : formatZScore(trade.exitZ)}
@@ -281,7 +291,15 @@ function FragmentRow({
                 <p className="mt-1.5 max-w-2xl text-[13px] leading-6 text-muted">{trade.postMortem}</p>
               </>
             ) : null}
-            {isOpen && mode === "live" ? <CloseForm onDone={onDone} trade={trade} /> : null}
+            {trade.rule ? (
+              <>
+                <p className="mt-4 font-mono text-[9px] uppercase tracking-[0.12em] text-blue">Rule</p>
+                <p className="mt-1.5 font-mono text-[11px] leading-5 text-muted">{trade.rule}</p>
+              </>
+            ) : null}
+            {isOpen && mode === "live" && trade.source !== "auto" ? (
+              <CloseForm onDone={onDone} trade={trade} />
+            ) : null}
           </td>
         </tr>
       ) : null}

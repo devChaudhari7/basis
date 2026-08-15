@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
+import { currentViewer } from "@/lib/server/auth";
 import { isAuthorizedOperator, serviceClient, toFinite } from "@/lib/server/operator";
 
 export const dynamic = "force-dynamic";
@@ -8,13 +9,20 @@ export const dynamic = "force-dynamic";
 /**
  * Log a paper trade against the latest settlement session.
  *
- * The client supplies only direction, stop-z, and the mandatory hypothesis;
- * entry value/z/date always come from the worker-computed spread_daily table
- * so an operator cannot log against a number the desk never produced.
+ * Two callers are accepted: the desk operator holding the operator token, and
+ * any signed-in visitor keeping their own paper book. Either way the client
+ * supplies only direction, stop-z, and the mandatory hypothesis; entry
+ * value/z/date always come from the worker-computed spread_daily table, so
+ * nobody can log against a number the desk never produced.
  */
 export async function POST(request: Request) {
-  if (!isAuthorizedOperator(request)) {
-    return NextResponse.json({ error: "Invalid operator token." }, { status: 401 });
+  const viewer = await currentViewer();
+  const isOperator = isAuthorizedOperator(request);
+  if (!isOperator && !viewer) {
+    return NextResponse.json(
+      { error: "Sign in to keep a paper book, or supply the operator token." },
+      { status: 401 }
+    );
   }
   const client = serviceClient();
   if (!client) {
@@ -78,6 +86,27 @@ export async function POST(request: Request) {
     );
   }
 
+  // The operator token identifies the desk's own book; anyone else is logging
+  // into their personal one, which RLS scopes to their user id.
+  const source = isOperator ? "operator" : "user";
+  const ownerId = isOperator ? null : viewer?.id ?? null;
+
+  if (source === "user") {
+    const existing = await client
+      .from("paper_trades")
+      .select("id")
+      .eq("pair_id", pairId)
+      .eq("owner_id", ownerId)
+      .is("closed_on", null)
+      .limit(1);
+    if ((existing.data ?? []).length > 0) {
+      return NextResponse.json(
+        { error: "You already hold an open position on this spread." },
+        { status: 409 }
+      );
+    }
+  }
+
   const insertResult = await client
     .from("paper_trades")
     .insert({
@@ -87,7 +116,9 @@ export async function POST(request: Request) {
       entry_z: entryZ,
       direction,
       stop_z: stopZ,
-      hypothesis
+      hypothesis,
+      source,
+      owner_id: ownerId
     })
     .select("id")
     .single();

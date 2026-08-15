@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { riskPoints } from "@/lib/datasource";
+import { currentViewer } from "@/lib/server/auth";
 import { isAuthorizedOperator, serviceClient, toFinite } from "@/lib/server/operator";
 
 export const dynamic = "force-dynamic";
@@ -16,8 +17,10 @@ const EXIT_REASONS = ["target", "stop", "time", "manual"] as const;
  *   R    = direction × (exit − entry) / risk
  */
 export async function POST(request: Request, { params }: { params: { id: string } }) {
-  if (!isAuthorizedOperator(request)) {
-    return NextResponse.json({ error: "Invalid operator token." }, { status: 401 });
+  const viewer = await currentViewer();
+  const isOperator = isAuthorizedOperator(request);
+  if (!isOperator && !viewer) {
+    return NextResponse.json({ error: "Sign in, or supply the operator token." }, { status: 401 });
   }
   const client = serviceClient();
   if (!client) {
@@ -51,6 +54,19 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const trade = tradeResult.data;
   if (trade.closed_on) {
     return NextResponse.json({ error: "Trade is already closed." }, { status: 409 });
+  }
+
+  // This route holds the service key, which bypasses RLS, so ownership must be
+  // enforced here explicitly. A signed-in visitor may only close their own
+  // trades; the mechanical book is closed by its rules and by nothing else.
+  if (trade.source === "auto") {
+    return NextResponse.json(
+      { error: "The mechanical book is closed by its own rules, not by hand." },
+      { status: 403 }
+    );
+  }
+  if (!isOperator && trade.owner_id !== viewer?.id) {
+    return NextResponse.json({ error: "That trade is not yours to close." }, { status: 403 });
   }
 
   const latestResult = await client

@@ -16,6 +16,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import snapshotJson from "@/lib/snapshot/desk.json";
 import { pairMeta } from "@/lib/pair-meta";
+import { createSessionClient, currentViewer } from "@/lib/server/auth";
 import type {
   DataSourceMode,
   DeskData,
@@ -515,6 +516,8 @@ export function riskPoints(entryZ: number, stopZ: number, sigmaAtEntry: number |
 interface TradeRow {
   id: number;
   pair_id: number;
+  source: string | null;
+  rule: string | null;
   opened_on: string;
   entry_value: unknown;
   entry_z: unknown;
@@ -532,16 +535,20 @@ interface TradeRow {
 
 export const getTrades = cache(async (): Promise<TradesData> => {
   if (dataMode() !== "live") {
-    return { mode: "snapshot", trades: [] };
+    return { mode: "snapshot", trades: [], viewerId: null };
   }
-  const client = anonClient();
   const desk = await getDesk();
-  if (desk.mode !== "live") return { mode: "snapshot", trades: [] };
+  if (desk.mode !== "live") return { mode: "snapshot", trades: [], viewerId: null };
+
+  // The session client applies RLS: everyone sees the desk's mechanical and
+  // operator record, and a signed-in visitor additionally sees their own.
+  const viewer = await currentViewer();
+  const client = createSessionClient() ?? anonClient();
 
   const result = await client.from("paper_trades").select("*").order("opened_on", { ascending: false });
   if (result.error) {
     console.error("paper_trades query failed:", result.error.message);
-    return { mode: "live", trades: [] };
+    return { mode: "live", trades: [], viewerId: viewer?.id ?? null };
   }
 
   const pairById = new Map(desk.pairs.map((pair) => [pair.id ?? -1, pair]));
@@ -572,6 +579,8 @@ export const getTrades = cache(async (): Promise<TradesData> => {
       return {
         id: row.id,
         pairSlug: pair?.slug ?? String(row.pair_id),
+        source: (row.source as PaperTrade["source"]) ?? "operator",
+        rule: row.rule,
         openedOn: row.opened_on,
         entryValue,
         entryZ,
@@ -589,5 +598,5 @@ export const getTrades = cache(async (): Promise<TradesData> => {
       };
     })
   );
-  return { mode: "live", trades };
+  return { mode: "live", trades, viewerId: viewer?.id ?? null };
 });

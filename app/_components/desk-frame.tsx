@@ -7,6 +7,7 @@ import {
   BookOpenText,
   ChartNoAxesCombined,
   LayoutDashboard,
+  LogIn,
   Menu,
   X
 } from "lucide-react";
@@ -19,7 +20,8 @@ const navigation = [
   { href: "/", label: "Desk", icon: LayoutDashboard },
   { href: "/journal", label: "Journal", icon: BookOpenText },
   { href: "/performance", label: "Performance", icon: ChartNoAxesCombined },
-  { href: "/method", label: "Method", icon: Activity }
+  { href: "/method", label: "Method", icon: Activity },
+  { href: "/signin", label: "Sign in", icon: LogIn }
 ];
 
 function isCurrentPath(pathname: string, href: string) {

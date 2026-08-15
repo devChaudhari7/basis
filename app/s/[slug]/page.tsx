@@ -172,6 +172,15 @@ export default async function SpreadDetailPage({ params }: { params: { slug: str
             <p className="mt-3 text-sm leading-6 text-muted">
               Signals fire at |z| ≥ {formatNumber(pair.entryZ, 1)} with a stationary spread and no roll
               contamination. Logging demands a hypothesis first.
+              {tradesData.viewerId === null && tradesData.mode === "live" ? (
+                <>
+                  {" "}
+                  <Link className="text-amber underline-offset-2 hover:underline" href="/signin">
+                    Sign in
+                  </Link>{" "}
+                  to keep your own paper book against the same signals.
+                </>
+              ) : null}
             </p>
           </div>
           <TradeModal
@@ -182,6 +191,7 @@ export default async function SpreadDetailPage({ params }: { params: { slug: str
             latestValue={pair.latest.value}
             latestZ={pair.latest.z}
             mode={tradesData.mode}
+            signedIn={tradesData.viewerId !== null}
             slug={pair.slug}
             unit={pair.unit}
           />
