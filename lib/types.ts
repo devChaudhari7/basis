@@ -49,12 +49,57 @@ export interface SignalMark {
   d: string;
   z: number;
   direction: TradeDirection;
+  /** Realised move at each horizon, in entry-day sigma, signed so positive
+   *  means the dislocation closed in the signal's favour. Null when the
+   *  history after the signal is shorter than the horizon. */
+  fwd5: number | null;
+  fwd10: number | null;
+  fwd20: number | null;
+  /** Worst adverse excursion along the way, in the same units. */
+  mae20: number | null;
 }
+
+/** Descriptive summary of what followed past signals. Never a forecast. */
+export interface SignalDiagnostic {
+  horizon: number;
+  n: number;
+  hitRate: number;
+  medianMove: number;
+  p25: number;
+  p75: number;
+  medianMae: number;
+  worst: number;
+}
+
+/** A retrospectively detected level shift. Context only — never an input. */
+export interface StructuralBreak {
+  d: string;
+  shift: number;
+  tStat: number;
+}
+
+export type EventSource = "published" | "rule-derived";
 
 export interface UpcomingEvent {
   d: string;
   label: string;
   daysAway: number;
+  source: EventSource | null;
+}
+
+/** A past event plotted on the spread chart. */
+export interface EventMark {
+  d: string;
+  label: string;
+  source: EventSource | null;
+}
+
+export interface PairCorrelation {
+  pairA: string;
+  pairB: string;
+  corr: number;
+  n: number;
+  windowSessions: number;
 }
 
 export interface Pair {
@@ -73,6 +118,13 @@ export interface Pair {
   series: readonly SeriesPoint[];
   signals: readonly SignalMark[];
   nextEvent: UpcomingEvent | null;
+  diagnostics: readonly SignalDiagnostic[];
+  breaks: readonly StructuralBreak[];
+  /** Past events falling inside the charted window. */
+  events: readonly EventMark[];
+  /** True when a structural break sits inside the current estimation window,
+   *  which makes the 60-day mean — and therefore the z-score — unreliable. */
+  breakInWindow: boolean;
 }
 
 export interface DeskData {
@@ -81,6 +133,7 @@ export interface DeskData {
   asOf: string;
   generatedAt: string | null;
   pairs: readonly Pair[];
+  correlations: readonly PairCorrelation[];
 }
 
 export interface PaperTrade {

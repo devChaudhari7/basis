@@ -22,6 +22,14 @@ from typing import Any
 import pandas as pd
 
 from .config import PROJECT_ROOT, Settings
+from .diagnostics import (
+    CORRELATION_WINDOW,
+    DEFAULT_HORIZONS,
+    aggregate_outcomes,
+    correlation_matrix,
+    detect_structural_breaks,
+    signal_outcomes,
+)
 from .ingest import download_histories
 from .seed import EVENTS, INSTRUMENTS, PAIRS
 from .stats import StatisticsSettings, build_signal_rows, compute_spread_daily
@@ -92,6 +100,7 @@ def build_snapshot(settings: Settings) -> dict[str, Any]:
     histories = download_histories(settings)
 
     pairs_payload: list[dict[str, Any]] = []
+    spread_by_slug: dict[str, pd.Series] = {}
     for index, pair in enumerate(PAIRS, start=1):
         leg_a = histories.get(pair.leg_a_symbol)
         leg_b = histories.get(pair.leg_b_symbol)
@@ -110,10 +119,41 @@ def build_snapshot(settings: Settings) -> dict[str, Any]:
             LOGGER.error("Skipping %s: no computable spread values.", pair.slug)
             continue
 
+        signal_rows = build_signal_rows(frame, pair_id=index, entry_z=pair.entry_z)
+        directions = {pd.Timestamp(str(row["d"])): str(row["direction"]) for row in signal_rows}
+        outcomes = signal_outcomes(frame, list(directions), directions)
+        outcome_by_date = {
+            outcome.d.date().isoformat(): outcome for outcome in outcomes
+        }
         signals = [
-            {"d": row["d"], "z": row["z"], "direction": row["direction"]}
-            for row in build_signal_rows(frame, pair_id=index, entry_z=pair.entry_z)
+            {
+                "d": row["d"],
+                "z": row["z"],
+                "direction": row["direction"],
+                "fwd5": _num(outcome_by_date[row["d"]].forward.get(5))
+                if row["d"] in outcome_by_date
+                else None,
+                "fwd10": _num(outcome_by_date[row["d"]].forward.get(10))
+                if row["d"] in outcome_by_date
+                else None,
+                "fwd20": _num(outcome_by_date[row["d"]].forward.get(20))
+                if row["d"] in outcome_by_date
+                else None,
+                "mae20": _num(outcome_by_date[row["d"]].mae) if row["d"] in outcome_by_date else None,
+            }
+            for row in signal_rows
         ][-MAX_SIGNALS:]
+
+        diagnostics = aggregate_outcomes(outcomes, horizons=DEFAULT_HORIZONS)
+        breaks = [
+            {
+                "d": pd.Timestamp(item["d"]).date().isoformat(),
+                "shift": _num(item["shift"]),
+                "tStat": _num(item["t_stat"]),
+            }
+            for item in detect_structural_breaks(frame["value"])
+        ]
+        spread_by_slug[pair.slug] = frame["value"]
 
         legs = [
             {
@@ -137,6 +177,8 @@ def build_snapshot(settings: Settings) -> dict[str, Any]:
                 "latest": latest,
                 "series": _series_points(frame),
                 "signals": signals,
+                "diagnostics": diagnostics,
+                "breaks": breaks,
             }
         )
         LOGGER.info(
@@ -156,6 +198,7 @@ def build_snapshot(settings: Settings) -> dict[str, Any]:
         "asOf": as_of,
         "source": "yahoo-eod-snapshot",
         "events": [dict(event) for event in EVENTS],
+        "correlations": correlation_matrix(spread_by_slug, window=CORRELATION_WINDOW),
         "pairs": pairs_payload,
     }
 

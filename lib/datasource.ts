@@ -19,13 +19,18 @@ import { pairMeta } from "@/lib/pair-meta";
 import type {
   DataSourceMode,
   DeskData,
+  EventMark,
+  EventSource,
   InstrumentLeg,
   Pair,
+  PairCorrelation,
   PairLatest,
   PaperTrade,
   SeriesPoint,
+  SignalDiagnostic,
   SignalMark,
   Stability,
+  StructuralBreak,
   TradeDirection,
   TradeExitReason,
   TradesData,
@@ -34,11 +39,45 @@ import type {
 
 const SERIES_SESSIONS = 480;
 const MAX_SIGNALS = 12;
+/** Sessions of the estimation window; a break inside it invalidates the mean. */
+const ESTIMATION_WINDOW_DAYS = 90;
 
 interface EventRow {
   d: string;
   label: string;
   affects: readonly string[];
+  source?: string | null;
+}
+
+/** Past events that fall within the charted series window. */
+function eventMarksFor(
+  slug: string,
+  events: readonly EventRow[],
+  series: readonly SeriesPoint[]
+): EventMark[] {
+  if (series.length === 0) return [];
+  const first = series[0].d;
+  const last = series[series.length - 1].d;
+  return events
+    .filter((event) => event.affects.includes(slug) && event.d >= first && event.d <= last)
+    .map((event) => ({
+      d: event.d,
+      label: event.label,
+      source: (event.source as EventSource) ?? null
+    }))
+    .sort((a, b) => a.d.localeCompare(b.d));
+}
+
+/** Does a detected break sit inside the window the current z-score uses? */
+function breakInsideWindow(
+  breaks: readonly StructuralBreak[],
+  series: readonly SeriesPoint[]
+): boolean {
+  if (series.length === 0 || breaks.length === 0) return false;
+  const cutoffIndex = Math.max(0, series.length - ESTIMATION_WINDOW_DAYS);
+  const cutoff = series[cutoffIndex].d;
+  const latest = series[series.length - 1].d;
+  return breaks.some((item) => item.d >= cutoff && item.d <= latest);
 }
 
 function supabaseUrl(): string | undefined {
@@ -81,7 +120,12 @@ function nextEventFor(slug: string, events: readonly EventRow[]): UpcomingEvent 
     .filter((event) => event.affects.includes(slug) && event.d >= today)
     .sort((a, b) => a.d.localeCompare(b.d));
   if (upcoming.length === 0) return null;
-  return { d: upcoming[0].d, label: upcoming[0].label, daysAway: daysBetween(today, upcoming[0].d) };
+  return {
+    d: upcoming[0].d,
+    label: upcoming[0].label,
+    daysAway: daysBetween(today, upcoming[0].d),
+    source: (upcoming[0].source as EventSource) ?? null
+  };
 }
 
 /* ── snapshot mode ─────────────────────────────────────────────────── */
@@ -90,6 +134,7 @@ interface SnapshotShape {
   generatedAt: string;
   asOf: string;
   events: readonly EventRow[];
+  correlations?: readonly Record<string, unknown>[];
   pairs: readonly {
     slug: string;
     displayName: string;
@@ -103,6 +148,8 @@ interface SnapshotShape {
     latest: Record<string, unknown>;
     series: readonly Record<string, unknown>[];
     signals: readonly Record<string, unknown>[];
+    diagnostics?: readonly Record<string, unknown>[];
+    breaks?: readonly Record<string, unknown>[];
   }[];
 }
 
@@ -127,19 +174,8 @@ function snapshotLatest(raw: Record<string, unknown>): PairLatest {
 
 function snapshotDesk(): DeskData {
   const snapshot = snapshotJson as unknown as SnapshotShape;
-  const pairs: Pair[] = snapshot.pairs.map((pair) => ({
-    id: null,
-    slug: pair.slug,
-    displayName: pair.displayName,
-    method: pair.method as Pair["method"],
-    unit: pair.unit,
-    lookback: pair.lookback,
-    entryZ: pair.entryZ,
-    stopZ: pair.stopZ,
-    rationale: pair.rationale,
-    legs: [pair.legs[0], pair.legs[1]] as const,
-    latest: snapshotLatest(pair.latest),
-    series: pair.series.map(
+  const pairs: Pair[] = snapshot.pairs.map((pair) => {
+    const series = pair.series.map(
       (point): SeriesPoint => ({
         d: String(point.d),
         v: toNumber(point.v) ?? 0,
@@ -148,22 +184,72 @@ function snapshotDesk(): DeskData {
         z: toNumber(point.z),
         roll: Boolean(point.roll)
       })
-    ),
-    signals: pair.signals.map(
-      (signal): SignalMark => ({
-        d: String(signal.d),
-        z: toNumber(signal.z) ?? 0,
-        direction: signal.direction as TradeDirection
+    );
+    const breaks = (pair.breaks ?? []).map(
+      (item): StructuralBreak => ({
+        d: String(item.d),
+        shift: toNumber(item.shift) ?? 0,
+        tStat: toNumber(item.tStat) ?? 0
       })
-    ),
-    nextEvent: nextEventFor(pair.slug, snapshot.events)
-  }));
+    );
+
+    return {
+      id: null,
+      slug: pair.slug,
+      displayName: pair.displayName,
+      method: pair.method as Pair["method"],
+      unit: pair.unit,
+      lookback: pair.lookback,
+      entryZ: pair.entryZ,
+      stopZ: pair.stopZ,
+      rationale: pair.rationale,
+      legs: [pair.legs[0], pair.legs[1]] as const,
+      latest: snapshotLatest(pair.latest),
+      series,
+      signals: pair.signals.map(
+        (signal): SignalMark => ({
+          d: String(signal.d),
+          z: toNumber(signal.z) ?? 0,
+          direction: signal.direction as TradeDirection,
+          fwd5: toNumber(signal.fwd5),
+          fwd10: toNumber(signal.fwd10),
+          fwd20: toNumber(signal.fwd20),
+          mae20: toNumber(signal.mae20)
+        })
+      ),
+      nextEvent: nextEventFor(pair.slug, snapshot.events),
+      diagnostics: (pair.diagnostics ?? []).map(
+        (row): SignalDiagnostic => ({
+          horizon: toNumber(row.horizon) ?? 0,
+          n: toNumber(row.n) ?? 0,
+          hitRate: toNumber(row.hit_rate) ?? 0,
+          medianMove: toNumber(row.median_move) ?? 0,
+          p25: toNumber(row.p25) ?? 0,
+          p75: toNumber(row.p75) ?? 0,
+          medianMae: toNumber(row.median_mae) ?? 0,
+          worst: toNumber(row.worst) ?? 0
+        })
+      ),
+      breaks,
+      events: eventMarksFor(pair.slug, snapshot.events, series),
+      breakInWindow: breakInsideWindow(breaks, series)
+    };
+  });
 
   return {
     mode: "snapshot",
     asOf: snapshot.asOf,
     generatedAt: snapshot.generatedAt,
-    pairs
+    pairs,
+    correlations: (snapshot.correlations ?? []).map(
+      (row): PairCorrelation => ({
+        pairA: String(row.pair_a),
+        pairB: String(row.pair_b),
+        corr: toNumber(row.corr) ?? 0,
+        n: toNumber(row.n) ?? 0,
+        windowSessions: toNumber(row.window_sessions) ?? 0
+      })
+    )
   };
 }
 
@@ -233,9 +319,10 @@ function liveLatest(rows: readonly SpreadDailyRow[]): PairLatest | null {
 async function liveDesk(): Promise<DeskData> {
   const client = anonClient();
 
-  const [pairsResult, eventsResult] = await Promise.all([
+  const [pairsResult, eventsResult, correlationsResult] = await Promise.all([
     client.from("pairs").select("*").order("id"),
-    client.from("events").select("d,label,affects")
+    client.from("events").select("d,label,affects,source"),
+    client.from("spread_correlations").select("pair_a,pair_b,corr,n,window_sessions")
   ]);
   if (pairsResult.error) throw new Error(`pairs query failed: ${pairsResult.error.message}`);
   const pairRows = (pairsResult.data ?? []) as PairRow[];
@@ -261,7 +348,7 @@ async function liveDesk(): Promise<DeskData> {
 
   const pairs = await Promise.all(
     pairRows.map(async (row): Promise<Pair | null> => {
-      const [seriesResult, signalsResult] = await Promise.all([
+      const [seriesResult, signalsResult, diagnosticsResult, breaksResult] = await Promise.all([
         client
           .from("spread_daily")
           .select("d,value,mean_60,std_60,z,pct_rank_252,half_life,beta,roll_suspect,adf_p,z_30,z_90,stability")
@@ -270,10 +357,16 @@ async function liveDesk(): Promise<DeskData> {
           .limit(SERIES_SESSIONS),
         client
           .from("signals")
-          .select("d,z,direction")
+          .select("d,z,direction,fwd_5,fwd_10,fwd_20,mae_20")
           .eq("pair_id", row.id)
           .order("d", { ascending: false })
-          .limit(MAX_SIGNALS)
+          .limit(MAX_SIGNALS),
+        client
+          .from("signal_diagnostics")
+          .select("horizon,n,hit_rate,median_move,p25,p75,median_mae,worst")
+          .eq("pair_id", row.id)
+          .order("horizon"),
+        client.from("structural_breaks").select("d,shift,t_stat").eq("pair_id", row.id).order("d")
       ]);
       if (seriesResult.error) {
         throw new Error(`spread_daily query failed: ${seriesResult.error.message}`);
@@ -287,10 +380,19 @@ async function liveDesk(): Promise<DeskData> {
       const legB = instrumentById.get(row.leg_b);
       if (!legA || !legB) return null;
 
+      const series = seriesRows.map(liveSeriesPoint);
+      const breaks = ((breaksResult.data ?? []) as { d: string; shift: unknown; t_stat: unknown }[]).map(
+        (item): StructuralBreak => ({
+          d: item.d,
+          shift: toNumber(item.shift) ?? 0,
+          tStat: toNumber(item.t_stat) ?? 0
+        })
+      );
+
       return {
         id: row.id,
         slug: row.slug,
-        displayName: meta.displayName ?? row.slug.toUpperCase().replace(/-/g, "-"),
+        displayName: meta.displayName ?? row.slug.toUpperCase(),
         method: row.method as Pair["method"],
         unit: unitForPair(row.method as Pair["method"], legA, legB),
         lookback: Number(row.lookback ?? 60),
@@ -299,22 +401,75 @@ async function liveDesk(): Promise<DeskData> {
         rationale: row.rationale,
         legs: [legA, legB] as const,
         latest,
-        series: seriesRows.map(liveSeriesPoint),
-        signals: ((signalsResult.data ?? []) as { d: string; z: unknown; direction: string }[])
+        series,
+        signals: (
+          (signalsResult.data ?? []) as {
+            d: string;
+            z: unknown;
+            direction: string;
+            fwd_5: unknown;
+            fwd_10: unknown;
+            fwd_20: unknown;
+            mae_20: unknown;
+          }[]
+        )
           .reverse()
           .map((signal) => ({
             d: signal.d,
             z: toNumber(signal.z) ?? 0,
-            direction: signal.direction as TradeDirection
+            direction: signal.direction as TradeDirection,
+            fwd5: toNumber(signal.fwd_5),
+            fwd10: toNumber(signal.fwd_10),
+            fwd20: toNumber(signal.fwd_20),
+            mae20: toNumber(signal.mae_20)
           })),
-        nextEvent: nextEventFor(row.slug, events)
+        nextEvent: nextEventFor(row.slug, events),
+        diagnostics: (
+          (diagnosticsResult.data ?? []) as Record<string, unknown>[]
+        ).map((item) => ({
+          horizon: toNumber(item.horizon) ?? 0,
+          n: toNumber(item.n) ?? 0,
+          hitRate: toNumber(item.hit_rate) ?? 0,
+          medianMove: toNumber(item.median_move) ?? 0,
+          p25: toNumber(item.p25) ?? 0,
+          p75: toNumber(item.p75) ?? 0,
+          medianMae: toNumber(item.median_mae) ?? 0,
+          worst: toNumber(item.worst) ?? 0
+        })),
+        breaks,
+        events: eventMarksFor(row.slug, events, series),
+        breakInWindow: breakInsideWindow(breaks, series)
       };
     })
   );
 
   const usable = pairs.filter((pair): pair is Pair => pair !== null);
   const asOf = usable.reduce((latest, pair) => (pair.latest.d > latest ? pair.latest.d : latest), "");
-  return { mode: "live", asOf: asOf || todayIso(), generatedAt: null, pairs: usable };
+  const slugById = new Map(pairRows.map((row) => [row.id, row.slug]));
+  const correlations = (
+    (correlationsResult.data ?? []) as Record<string, unknown>[]
+  ).flatMap((item): PairCorrelation[] => {
+    const slugA = slugById.get(Number(item.pair_a));
+    const slugB = slugById.get(Number(item.pair_b));
+    if (!slugA || !slugB) return [];
+    return [
+      {
+        pairA: slugA,
+        pairB: slugB,
+        corr: toNumber(item.corr) ?? 0,
+        n: toNumber(item.n) ?? 0,
+        windowSessions: toNumber(item.window_sessions) ?? 0
+      }
+    ];
+  });
+
+  return {
+    mode: "live",
+    asOf: asOf || todayIso(),
+    generatedAt: null,
+    pairs: usable,
+    correlations
+  };
 }
 
 /** Units live on instruments in the DB; for a ratio/beta pair the spread unit

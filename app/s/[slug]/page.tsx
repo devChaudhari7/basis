@@ -5,6 +5,7 @@ import { ArrowLeft, CalendarClock } from "lucide-react";
 
 import { DeskFooter } from "@/app/_components/desk-footer";
 import { ZDial } from "@/app/_components/z-dial";
+import { SignalDiagnostics } from "@/app/s/[slug]/signal-diagnostics";
 import { SpreadChart } from "@/app/s/[slug]/spread-chart";
 import { TradeModal } from "@/app/s/[slug]/trade-modal";
 import { getDesk, getPair, getTrades } from "@/lib/datasource";
@@ -104,8 +105,26 @@ export default async function SpreadDetailPage({ params }: { params: { slug: str
         </p>
       ) : null}
 
+      {pair.breakInWindow ? (
+        <p className="mt-4 border border-red/40 bg-red/[0.07] px-3 py-2.5 font-mono text-[11px] leading-5 text-red">
+          ESTIMATION WINDOW SPANS A STRUCTURAL BREAK — the mean this z-score is measured against
+          straddles a level shift, so treat the reading as unreliable until the window clears it.
+        </p>
+      ) : null}
+
       <section className="mt-6">
-        <SpreadChart decimals={meta.decimals} series={pair.series} signals={pair.signals} unit={pair.unit} />
+        <SpreadChart
+          breaks={pair.breaks}
+          decimals={meta.decimals}
+          events={pair.events}
+          series={pair.series}
+          signals={pair.signals}
+          unit={pair.unit}
+        />
+      </section>
+
+      <section className="mt-6">
+        <SignalDiagnostics diagnostics={pair.diagnostics} entryZ={pair.entryZ} />
       </section>
 
       <section className="mt-6 grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-3 xl:grid-cols-6">
@@ -176,15 +195,29 @@ export default async function SpreadDetailPage({ params }: { params: { slug: str
           </h2>
           {pair.signals.length > 0 ? (
             <table className="w-full font-mono text-[11px]">
-              <thead className="sr-only">
-                <tr><th>Date</th><th>Z-score</th><th>Direction</th></tr>
+              <thead>
+                <tr className="border-b border-line text-left text-[9px] uppercase tracking-[0.1em] text-muted">
+                  <th className="px-5 py-2 font-medium">Date</th>
+                  <th className="px-3 py-2 font-medium">z</th>
+                  <th className="px-3 py-2 font-medium">Direction</th>
+                  <th className="px-5 py-2 text-right font-medium" title="Move over the following 10 sessions, in entry-day sigma">
+                    +10d
+                  </th>
+                </tr>
               </thead>
               <tbody>
                 {[...pair.signals].reverse().map((signal) => (
                   <tr className="border-b border-line/60 last:border-b-0" key={signal.d}>
                     <td className="px-5 py-2.5 text-muted">{formatDate(signal.d)}</td>
-                    <td className={`px-5 py-2.5 ${Math.abs(signal.z) >= 2 ? "text-red" : "text-text"}`}>{formatZScore(signal.z)}</td>
-                    <td className="px-5 py-2.5 text-right text-muted">{directionLabel[signal.direction].toLowerCase()}</td>
+                    <td className={`px-3 py-2.5 ${Math.abs(signal.z) >= 2 ? "text-red" : "text-text"}`}>{formatZScore(signal.z)}</td>
+                    <td className="px-3 py-2.5 text-muted">{directionLabel[signal.direction].toLowerCase()}</td>
+                    <td
+                      className={`px-5 py-2.5 text-right ${
+                        signal.fwd10 === null ? "text-muted" : signal.fwd10 >= 0 ? "text-green" : "text-red"
+                      }`}
+                    >
+                      {signal.fwd10 === null ? "—" : `${signal.fwd10 >= 0 ? "+" : ""}${signal.fwd10.toFixed(2)}σ`}
+                    </td>
                   </tr>
                 ))}
               </tbody>

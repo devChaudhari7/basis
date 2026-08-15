@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, CircleDot, Database, Radio } from "lucide-react";
 
 import { ColdOpen } from "@/app/_components/cold-open";
+import { CorrelationMatrix } from "@/app/_components/correlation-matrix";
 import { DeskFooter } from "@/app/_components/desk-footer";
 import { SectionHeading } from "@/app/_components/section-heading";
 import { SpreadCard } from "@/app/_components/spread-card";
@@ -41,7 +42,18 @@ export default async function DeskPage() {
           </div>
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-b border-line pb-5 font-mono text-[10px] text-muted">
+        <p className="mt-6 max-w-3xl text-[15px] leading-7 text-muted">
+          BASIS watches {desk.pairs.length} relationships between instruments that should move
+          together — Brent against WTI, gold against copper, the US curve — and flags when one
+          stretches unusually far from its own recent history. It does not predict prices. It asks a
+          narrower question: <b className="font-medium text-text">is this gap unusual, is the
+          relationship still statistically stable, and what has happened the last time it looked like
+          this?</b>{" "}
+          Signals are logged as paper trades with a written hypothesis, and the track record is kept
+          in the open.
+        </p>
+
+        <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2 border-b border-line pb-5 font-mono text-[10px] text-muted">
           <span><b className="font-medium text-text">{desk.pairs.length}</b> monitored relationships</span>
           <span><b className={`font-medium ${stretched > 0 ? "text-red" : "text-text"}`}>{stretched}</b> beyond entry threshold</span>
           <span><b className="font-medium text-text">60d</b> default lookback</span>
@@ -53,6 +65,10 @@ export default async function DeskPage() {
             <SpreadCard asOf={desk.asOf} index={index} key={pair.slug} pair={pair} />
           ))}
         </div>
+      </section>
+
+      <section className="mt-10">
+        <CorrelationMatrix correlations={desk.correlations} pairs={desk.pairs} />
       </section>
 
       <section className="mt-10 border border-line bg-surface">

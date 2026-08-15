@@ -61,7 +61,47 @@ create table signals (
   z numeric not null,
   direction text not null check (direction in ('long_spread', 'short_spread')),
   notified boolean not null default false,
+  -- Forward outcomes in entry-day sigma, signed so positive = dislocation
+  -- closed in the signal's favour. Descriptive history, never a forecast.
+  fwd_5 numeric,
+  fwd_10 numeric,
+  fwd_20 numeric,
+  mae_20 numeric,                     -- worst adverse excursion before day 20
   unique (pair_id, d)
+);
+
+create table signal_diagnostics (
+  pair_id int not null references pairs(id) on delete cascade,
+  horizon int not null check (horizon > 0),
+  n int not null check (n >= 0),
+  hit_rate numeric,
+  median_move numeric,
+  p25 numeric,
+  p75 numeric,
+  median_mae numeric,
+  worst numeric,
+  primary key (pair_id, horizon)
+);
+
+-- Retrospective level shifts. Display and context only: never an input to the
+-- z-score, which stays a strictly backward-looking rolling statistic.
+create table structural_breaks (
+  pair_id int not null references pairs(id) on delete cascade,
+  d date not null,
+  shift numeric not null,             -- change in mean level, in pooled sigma
+  t_stat numeric not null,
+  primary key (pair_id, d)
+);
+
+-- Rolling correlation between pairs, computed on daily spread changes: it
+-- answers whether several open positions are really one bet.
+create table spread_correlations (
+  pair_a int not null references pairs(id) on delete cascade,
+  pair_b int not null references pairs(id) on delete cascade,
+  window_sessions int not null check (window_sessions > 1),
+  corr numeric not null check (corr >= -1 and corr <= 1),
+  n int not null,
+  primary key (pair_a, pair_b, window_sessions)
 );
 
 create table paper_trades (
@@ -92,6 +132,9 @@ create table events (
   d date not null,
   label text not null check (length(trim(label)) > 0),
   affects text[] not null default '{}', -- e.g. {'brent-wti', 'usdinr-dxy'}
+  -- 'published' = taken from an official calendar; 'rule-derived' = recurring
+  -- convention (EIA Wednesdays, NFP first Fridays) that can shift on holidays.
+  source text check (source in ('published', 'rule-derived')),
   unique (d, label)
 );
 
@@ -110,6 +153,9 @@ alter table spread_daily enable row level security;
 alter table signals enable row level security;
 alter table paper_trades enable row level security;
 alter table events enable row level security;
+alter table signal_diagnostics enable row level security;
+alter table structural_breaks enable row level security;
+alter table spread_correlations enable row level security;
 
 create policy "Public read instruments" on instruments for select to anon, authenticated using (true);
 create policy "Public read prices" on prices for select to anon, authenticated using (true);
@@ -118,6 +164,9 @@ create policy "Public read spread daily" on spread_daily for select to anon, aut
 create policy "Public read signals" on signals for select to anon, authenticated using (true);
 create policy "Public read paper trades" on paper_trades for select to anon, authenticated using (true);
 create policy "Public read events" on events for select to anon, authenticated using (true);
+create policy "Public read signal diagnostics" on signal_diagnostics for select to anon, authenticated using (true);
+create policy "Public read structural breaks" on structural_breaks for select to anon, authenticated using (true);
+create policy "Public read spread correlations" on spread_correlations for select to anon, authenticated using (true);
 
 -- A future authenticated operator UI can log and close paper trades without
 -- using a service key.  For a multi-user deployment, add an owner_id column
@@ -127,7 +176,8 @@ create policy "Authenticated operator inserts paper trades"
 create policy "Authenticated operator updates paper trades"
   on paper_trades for update to authenticated using (true) with check (true);
 
-grant select on instruments, prices, pairs, spread_daily, signals, paper_trades, events to anon, authenticated;
+grant select on instruments, prices, pairs, spread_daily, signals, paper_trades, events,
+  signal_diagnostics, structural_breaks, spread_correlations to anon, authenticated;
 grant insert, update on paper_trades to authenticated;
 grant usage, select on sequence paper_trades_id_seq to authenticated;
 

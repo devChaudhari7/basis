@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { formatDate, formatNumber, formatZScore } from "@/lib/utils";
-import type { SeriesPoint, SignalMark } from "@/lib/types";
+import type { EventMark, SeriesPoint, SignalMark, StructuralBreak } from "@/lib/types";
 
 const WIDTH = 920;
 const HEIGHT = 380;
@@ -60,17 +60,22 @@ function buildSegments(
 export function SpreadChart({
   series,
   signals,
+  events = [],
+  breaks = [],
   unit,
   decimals
 }: {
   series: readonly SeriesPoint[];
   signals: readonly SignalMark[];
+  events?: readonly EventMark[];
+  breaks?: readonly StructuralBreak[];
   unit: string;
   decimals: number;
 }) {
   const [range, setRange] = useState<RangeKey>("1Y");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [drawn, setDrawn] = useState(false);
+  const [showEvents, setShowEvents] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -138,6 +143,23 @@ export function SpreadChart({
   const signalByDate = useMemo(() => new Map(signals.map((signal) => [signal.d, signal])), [signals]);
   const indexByDate = useMemo(() => new Map(points.map((point, index) => [point.d, index])), [points]);
 
+  const breakMarks = useMemo(
+    () =>
+      breaks
+        .map((item) => ({ item, index: indexByDate.get(item.d) }))
+        .filter((entry): entry is { item: StructuralBreak; index: number } => entry.index !== undefined),
+    [breaks, indexByDate]
+  );
+
+  // Events are dense (weekly releases), so they stay behind a toggle and are
+  // capped to keep the chart readable at a glance.
+  const eventMarks = useMemo(() => {
+    if (!showEvents) return [];
+    return events
+      .map((item) => ({ item, index: indexByDate.get(item.d) }))
+      .filter((entry): entry is { item: EventMark; index: number } => entry.index !== undefined);
+  }, [events, indexByDate, showEvents]);
+
   const moveTo = (clientX: number, target: SVGSVGElement) => {
     const rect = target.getBoundingClientRect();
     const px = ((clientX - rect.left) / rect.width) * WIDTH;
@@ -165,20 +187,37 @@ export function SpreadChart({
           <span className="flex items-center gap-1.5"><i aria-hidden className="inline-block h-2.5 w-4 bg-blue/15" /> ±1σ / ±2σ</span>
           <span className="flex items-center gap-1.5 text-amber">△ roll-suspect</span>
           <span className="flex items-center gap-1.5"><i aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-red" /> signal</span>
+          {breaks.length > 0 ? (
+            <span className="flex items-center gap-1.5 text-red">┃ structural break</span>
+          ) : null}
         </div>
-        <div className="flex gap-1" role="group" aria-label="Chart range">
-          {(Object.keys(RANGE_SESSIONS) as RangeKey[]).map((key) => (
+        <div className="flex flex-wrap items-center gap-1">
+          {events.length > 0 ? (
             <button
-              className={`rounded-terminal border px-2 py-1 font-mono text-[10px] transition-colors ${
-                range === key ? "border-amber/50 bg-amber/10 text-amber" : "border-line text-muted hover:text-text"
+              aria-pressed={showEvents}
+              className={`mr-2 rounded-terminal border px-2 py-1 font-mono text-[10px] transition-colors ${
+                showEvents ? "border-blue/50 bg-blue/10 text-blue" : "border-line text-muted hover:text-text"
               }`}
-              key={key}
-              onClick={() => setRange(key)}
+              onClick={() => setShowEvents((value) => !value)}
               type="button"
             >
-              {key}
+              Events
             </button>
-          ))}
+          ) : null}
+          <div className="flex gap-1" role="group" aria-label="Chart range">
+            {(Object.keys(RANGE_SESSIONS) as RangeKey[]).map((key) => (
+              <button
+                className={`rounded-terminal border px-2 py-1 font-mono text-[10px] transition-colors ${
+                  range === key ? "border-amber/50 bg-amber/10 text-amber" : "border-line text-muted hover:text-text"
+                }`}
+                key={key}
+                onClick={() => setRange(key)}
+                type="button"
+              >
+                {key}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -220,6 +259,24 @@ export function SpreadChart({
             </text>
           ))}
 
+          {eventMarks.map(({ item, index }) => (
+            <line
+              key={`event-${item.d}-${item.label}`}
+              opacity={item.source === "rule-derived" ? 0.35 : 0.7}
+              stroke="var(--blue)"
+              strokeDasharray={item.source === "rule-derived" ? "1 4" : "3 3"}
+              strokeWidth="1"
+              x1={scales.x(index)}
+              x2={scales.x(index)}
+              y1={MARGIN.top}
+              y2={MARGIN.top + PLOT_H}
+            >
+              <title>
+                {`${item.d}: ${item.label}${item.source === "rule-derived" ? " (rule-derived date, may shift on holidays)" : ""}`}
+              </title>
+            </line>
+          ))}
+
           <g clipPath="url(#band-reveal)">
             {segments.map((segment, index) => (
               <g key={index}>
@@ -230,6 +287,34 @@ export function SpreadChart({
             ))}
             <path d={valuePath} fill="none" stroke="var(--amber)" strokeLinejoin="round" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
           </g>
+
+          {breakMarks.map(({ item, index }) => (
+            <g key={`break-${item.d}`}>
+              <line
+                stroke="var(--red)"
+                strokeWidth="1.5"
+                x1={scales.x(index)}
+                x2={scales.x(index)}
+                y1={MARGIN.top}
+                y2={MARGIN.top + PLOT_H}
+                opacity="0.55"
+              >
+                <title>
+                  {`${item.d}: structural break — mean level shifted ${item.shift > 0 ? "+" : ""}${item.shift.toFixed(1)}σ (t=${item.tStat.toFixed(1)})`}
+                </title>
+              </line>
+              <text
+                fill="var(--red)"
+                fontFamily="var(--font-mono)"
+                fontSize="9"
+                textAnchor="middle"
+                x={scales.x(index)}
+                y={MARGIN.top - 6}
+              >
+                break
+              </text>
+            </g>
+          ))}
 
           {points.map((point, index) => {
             if (!point.roll) return null;

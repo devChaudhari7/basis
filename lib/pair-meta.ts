@@ -13,7 +13,12 @@ const DEFAULT_META: PairPresentation = { category: "Spread", decimals: 2 };
 const PAIR_META: Record<string, PairPresentation> = {
   "brent-wti": { category: "Energy", decimals: 2, displayName: "BRENT-WTI" },
   "gold-silver": { category: "Metals", decimals: 2, displayName: "GOLD/SILVER" },
+  "gold-copper": { category: "Metals", decimals: 2, displayName: "GOLD/COPPER" },
+  "platinum-gold": { category: "Metals", decimals: 4, displayName: "PLATINUM/GOLD" },
   "nifty-banknifty": { category: "India equities", decimals: 4, displayName: "NIFTY/BANKNIFTY" },
+  "nifty-spx": { category: "Global equities", decimals: 1, displayName: "NIFTY vs S&P 500" },
+  "us10y-us2y": { category: "Rates", decimals: 3, displayName: "US 10Y vs 2Y" },
+  "corn-wheat": { category: "Agriculture", decimals: 4, displayName: "CORN/WHEAT" },
   "usdinr-dxy": { category: "FX", decimals: 2, displayName: "USDINR vs DXY" }
 };
 

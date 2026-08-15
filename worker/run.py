@@ -17,6 +17,14 @@ import pandas as pd
 from supabase import Client
 
 from .config import Settings
+from .diagnostics import (
+    CORRELATION_WINDOW,
+    DEFAULT_HORIZONS,
+    aggregate_outcomes,
+    correlation_matrix,
+    detect_structural_breaks,
+    signal_outcomes,
+)
 from .ingest import create_supabase_client, ingest_prices, load_price_series
 from .notify import DigestLine, SignalAlert, format_digest, format_signal_message, send_message
 from .seed import pair_metadata, seed_reference_data
@@ -209,6 +217,91 @@ def _send_digest(client: Client, settings: Settings, latest_by_pair: dict[int, d
     send_message(settings, format_digest(pair_lines, trade_lines, as_of))
 
 
+def _write_research(
+    client: Client,
+    pair_id: int,
+    frame: pd.DataFrame,
+    signal_rows: list[dict[str, Any]],
+) -> None:
+    """Persist signal outcomes, their aggregates, and structural breaks.
+
+    All three are retrospective descriptions of history. Nothing written here
+    feeds back into the z-score or the signal rule.
+    """
+
+    if signal_rows:
+        directions = {
+            pd.Timestamp(str(row["d"])): str(row["direction"]) for row in signal_rows
+        }
+        outcomes = signal_outcomes(frame, list(directions), directions)
+
+        for outcome in outcomes:
+            payload = {
+                "fwd_5": _clean(outcome.forward.get(5)),
+                "fwd_10": _clean(outcome.forward.get(10)),
+                "fwd_20": _clean(outcome.forward.get(20)),
+                "mae_20": _clean(outcome.mae),
+            }
+            if any(value is not None for value in payload.values()):
+                client.table("signals").update(payload).eq("pair_id", pair_id).eq(
+                    "d", outcome.d.date().isoformat()
+                ).execute()
+
+        diagnostics = [
+            {"pair_id": pair_id, **row} for row in aggregate_outcomes(outcomes, horizons=DEFAULT_HORIZONS)
+        ]
+        if diagnostics:
+            client.table("signal_diagnostics").upsert(
+                diagnostics, on_conflict="pair_id,horizon"
+            ).execute()
+            LOGGER.info(
+                "Signal diagnostics for pair %s: %s",
+                pair_id,
+                ", ".join(f"{row['horizon']}d n={row['n']} hit={row['hit_rate']:.0f}%" for row in diagnostics),
+            )
+
+    breaks = detect_structural_breaks(frame["value"])
+    if breaks:
+        client.table("structural_breaks").upsert(
+            [
+                {
+                    "pair_id": pair_id,
+                    "d": pd.Timestamp(item["d"]).date().isoformat(),
+                    "shift": float(item["shift"]),
+                    "t_stat": float(item["t_stat"]),
+                }
+                for item in breaks
+            ],
+            on_conflict="pair_id,d",
+        ).execute()
+        LOGGER.info("Detected %s structural break(s) for pair %s", len(breaks), pair_id)
+
+
+def _write_correlations(
+    client: Client, pairs: list[dict[str, Any]], frames: dict[str, pd.DataFrame]
+) -> None:
+    """Persist rolling cross-pair correlation of daily spread changes."""
+
+    id_by_slug = {str(row["slug"]): int(row["id"]) for row in pairs}
+    spreads = {slug: frame["value"] for slug, frame in frames.items() if not frame.empty}
+    rows = [
+        {
+            "pair_a": id_by_slug[row["pair_a"]],
+            "pair_b": id_by_slug[row["pair_b"]],
+            "window_sessions": int(row["window_sessions"]),
+            "corr": float(row["corr"]),
+            "n": int(row["n"]),
+        }
+        for row in correlation_matrix(spreads, window=CORRELATION_WINDOW)
+        if row["pair_a"] in id_by_slug and row["pair_b"] in id_by_slug
+    ]
+    if rows:
+        client.table("spread_correlations").upsert(
+            rows, on_conflict="pair_a,pair_b,window_sessions"
+        ).execute()
+        LOGGER.info("Upserted %s cross-pair correlations", len(rows))
+
+
 def run_daily(settings: Settings) -> None:
     client = create_supabase_client(settings)
     seed_reference_data(client)
@@ -222,6 +315,7 @@ def run_daily(settings: Settings) -> None:
     prices = load_price_series(client, instrument_ids, start_date=settings.start_date)
 
     latest_by_pair: dict[int, dict[str, Any]] = {}
+    frames: dict[str, pd.DataFrame] = {}
     for pair_row in pairs:
         pair_id = int(pair_row["id"])
         leg_a = prices.get(int(pair_row["leg_a"]))
@@ -261,8 +355,13 @@ def run_daily(settings: Settings) -> None:
                 ).execute()
         _send_signal_alerts(client, settings, pair_row, frame)
 
+        frames[str(pair_row["slug"])] = frame
+        _write_research(client, pair_id, frame, signal_rows)
+
     if not latest_by_pair:
         raise RuntimeError("No pair produced statistics; refusing to send an empty digest.")
+
+    _write_correlations(client, pairs, frames)
     _send_digest(client, settings, latest_by_pair, pairs)
 
 
