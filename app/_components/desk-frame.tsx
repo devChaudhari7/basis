@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { CommandPalette } from "@/app/_components/command-palette";
 import { formatZScore } from "@/lib/utils";
 import type { TapeItem } from "@/lib/types";
 
@@ -113,8 +114,9 @@ export function DeskFrame({ children, tapeItems }: { children: ReactNode; tapeIt
         </div>
       </aside>
 
-      <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-line bg-bg/95 px-5 backdrop-blur lg:hidden">
+      <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-line bg-bg/95 px-5 backdrop-blur lg:hidden">
         <Link className="font-mono text-xl font-semibold tracking-[-0.08em]" href="/">basis<span className="text-amber">.</span></Link>
+        <CommandPalette items={tapeItems} />
         <button
           aria-expanded={menuOpen}
           aria-label={menuOpen ? "Close navigation" : "Open navigation"}
@@ -133,6 +135,9 @@ export function DeskFrame({ children, tapeItems }: { children: ReactNode; tapeIt
       )}
 
       <div className="lg:pl-[72px] xl:pl-44">
+        <div className="hidden items-center justify-end border-b border-line px-5 py-2 lg:flex">
+          <CommandPalette items={tapeItems} />
+        </div>
         <Tape items={tapeItems} />
         <main className="mx-auto w-full max-w-[1280px] px-5 py-7 sm:px-7 lg:px-8 lg:py-9" id="main">{children}</main>
       </div>
