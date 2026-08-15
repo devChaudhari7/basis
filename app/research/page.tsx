@@ -45,19 +45,33 @@ interface EventImpact {
   survives_fdr: boolean;
 }
 
+interface ModelExperiment {
+  ran_on: string;
+  n_evaluated: number;
+  rule_hit_rate: number;
+  model_hit_rate: number | null;
+  model_taken: number;
+  rule_expectancy: number;
+  model_expectancy: number | null;
+  permutation_p: number;
+  verdict: string;
+}
+
 export default async function ResearchPage() {
   const desk = await getDesk();
   const client = serviceClient();
 
-  const [runResult, candidatesResult, impactsResult] = client
+  const [runResult, candidatesResult, impactsResult, experimentResult] = client
     ? await Promise.all([
         client.from("scan_runs").select("*").order("scanned_on", { ascending: false }).limit(1),
         client.from("candidates").select("*").order("rank").limit(14),
-        client.from("event_impacts").select("*").order("p_value").limit(14)
+        client.from("event_impacts").select("*").order("p_value").limit(14),
+        client.from("model_experiments").select("*").order("ran_on", { ascending: false }).limit(1)
       ])
-    : [null, null, null];
+    : [null, null, null, null];
 
   const run = ((runResult?.data ?? []) as ScanRun[])[0] ?? null;
+  const experiment = ((experimentResult?.data ?? []) as ModelExperiment[])[0] ?? null;
   const candidates = (candidatesResult?.data ?? []) as Candidate[];
   const impacts = (impactsResult?.data ?? []) as EventImpact[];
   const nameBySlug = new Map(desk.pairs.map((pair) => [pair.slug, pair.displayName]));
@@ -125,6 +139,65 @@ export default async function ResearchPage() {
               Benjamini-Hochberg controls the share of survivors expected to be false, leaving{" "}
               {run.survivors}.
             </p>
+          </div>
+        ) : null}
+
+        {experiment ? (
+          <div className="mt-6 border border-line bg-surface">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-5 py-3.5">
+              <h2 className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                Can a learned filter beat the fixed rule?
+              </h2>
+              <p className="font-mono text-[10px] text-muted">
+                walk-forward · {experiment.n_evaluated} out-of-sample decisions · {experiment.ran_on}
+              </p>
+            </div>
+
+            <div className="grid gap-px bg-line sm:grid-cols-2">
+              <div className="bg-surface p-5">
+                <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
+                  Fixed rule · takes every signal
+                </p>
+                <p className="numeric mt-2 text-2xl text-text">
+                  {formatNumber(experiment.rule_hit_rate, 1)}%
+                </p>
+                <p className="mt-1 font-mono text-[11px] text-muted">
+                  expectancy {experiment.rule_expectancy >= 0 ? "+" : ""}
+                  {formatNumber(experiment.rule_expectancy, 3)}σ
+                </p>
+              </div>
+              <div className="bg-surface p-5">
+                <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
+                  Learned filter · took {experiment.model_taken} of {experiment.n_evaluated}
+                </p>
+                <p className="numeric mt-2 text-2xl text-green">
+                  {experiment.model_hit_rate === null ? "—" : `${formatNumber(experiment.model_hit_rate, 1)}%`}
+                </p>
+                <p className="mt-1 font-mono text-[11px] text-muted">
+                  expectancy {(experiment.model_expectancy ?? 0) >= 0 ? "+" : ""}
+                  {formatNumber(experiment.model_expectancy, 3)}σ · permutation p ={" "}
+                  {formatNumber(experiment.permutation_p, 3)}
+                </p>
+              </div>
+            </div>
+
+            <div className="border-t border-line px-5 py-4">
+              <p className="text-[13px] leading-6 text-text">{experiment.verdict}.</p>
+              <p className="mt-3 text-[13px] leading-6 text-muted">
+                Every feature is observable on the signal session; the model is refitted before each
+                decision using only signals that had already resolved; the permutation test measures
+                what a gap this size looks like when there is no edge at all. What it learned is
+                economically coherent rather than arbitrary — fast-reverting, window-stable, more
+                extreme dislocations are the ones that close.
+              </p>
+              <p className="mt-3 border-t border-line pt-3 font-mono text-[10px] leading-5 text-amber">
+                HELD LOOSELY — {experiment.model_taken} taken decisions and p ≈{" "}
+                {formatNumber(experiment.permutation_p, 3)} is a promising result, not a proven one,
+                and the magnitude has already moved as signals accumulated. Every live prediction is
+                now logged before its outcome exists, so this claim is being tested forward in public
+                rather than trusted once. No real money is involved.
+              </p>
+            </div>
           </div>
         ) : null}
 
